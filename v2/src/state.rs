@@ -47,27 +47,27 @@ impl Intervals {
 
 pub struct Store {
     pub dir: PathBuf,
-    pub prefix: String,
+    pub key: String,
     pub chunk: u64,
     pub done: Intervals,
     journal: File,
 }
 
 impl Store {
-    pub fn open(dir: &Path, prefix: &str, chunk: u64) -> io::Result<Store> {
+    pub fn open(dir: &Path, key: &str, chunk: u64) -> io::Result<Store> {
         fs::create_dir_all(dir)?;
         let bad = |m: &str| io::Error::new(io::ErrorKind::InvalidData, m.to_string());
-        let header = format!("H {prefix} {chunk}");
+        let header = format!("H {key} {chunk}");
         let mut done = Intervals::default();
         let ck = fs::read_to_string(dir.join("checkpoint.txt")).ok();
         if let Some(txt) = &ck {
-            done = parse_checkpoint(txt, prefix, chunk)?; // binds prefix + chunk
+            done = parse_checkpoint(txt, key, chunk)?; // binds settings + chunk
         }
         let mut hdr_ok = false;
         if let Ok(txt) = fs::read_to_string(dir.join("journal.log")) {
             let mut lines = txt.lines().peekable();
             if let Some(h) = lines.next_if(|l| l.starts_with("H ")) {
-                if h != header { return Err(bad("journal is for a different prefix or chunk size")); }
+                if h != header { return Err(bad("journal is for a different settings or chunk size")); }
                 hdr_ok = true;
             }
             for line in lines {
@@ -81,7 +81,7 @@ impl Store {
         let mut journal = OpenOptions::new().create(true).append(true).open(dir.join("journal.log"))?;
         if journal.metadata()?.len() == 0 { writeln!(journal, "{header}")?; journal.sync_all()?; }
         File::open(dir)?.sync_all()?; // make the journal's directory entry durable
-        Ok(Store { dir: dir.to_path_buf(), prefix: prefix.into(), chunk, done, journal })
+        Ok(Store { dir: dir.to_path_buf(), key: key.into(), chunk, done, journal })
     }
 
     /// Append completed intervals to the journal and fsync.
@@ -98,7 +98,7 @@ impl Store {
     /// Atomic snapshot (tmp+fsync+rename+dir fsync), then truncate journal.
     /// A crash between the two steps is harmless: replay is idempotent.
     pub fn checkpoint(&mut self) -> io::Result<()> {
-        let mut body = format!("gensys-ckpt v1\nprefix {}\nchunk {}\n", self.prefix, self.chunk);
+        let mut body = format!("ckpt v2\nkey {}\nchunk {}\n", self.key, self.chunk);
         for (s, e) in &self.done.0 {
             body += &format!("I {s} {e}\n");
         }
@@ -110,7 +110,7 @@ impl Store {
         fs::rename(&tmp, self.dir.join("checkpoint.txt"))?;
         File::open(&self.dir)?.sync_all()?;
         self.journal.set_len(0)?;
-        writeln!(self.journal, "H {} {}", self.prefix, self.chunk)?;
+        writeln!(self.journal, "H {} {}", self.key, self.chunk)?;
         self.journal.sync_all()
     }
 }
@@ -124,7 +124,7 @@ fn parse_journal_line(l: &str) -> Option<(u64, u64)> {
     if s < e { Some((s, e)) } else { None }
 }
 
-fn parse_checkpoint(txt: &str, prefix: &str, chunk: u64) -> io::Result<Intervals> {
+fn parse_checkpoint(txt: &str, key: &str, chunk: u64) -> io::Result<Intervals> {
     let bad = |m: &str| io::Error::new(io::ErrorKind::InvalidData, format!("checkpoint: {m}"));
     let idx = txt.rfind("sum ").ok_or_else(|| bad("no checksum"))?;
     let (body, sum) = txt.split_at(idx);
@@ -133,7 +133,7 @@ fn parse_checkpoint(txt: &str, prefix: &str, chunk: u64) -> io::Result<Intervals
     for l in body.lines() {
         let p: Vec<&str> = l.split(' ').collect();
         match p.as_slice() {
-            ["prefix", v] if *v != prefix => return Err(bad("prefix differs from state")),
+            ["key", v] if *v != key => return Err(bad("settings differ from state")),
             ["chunk", v] if v.parse::<u64>().ok() != Some(chunk) => return Err(bad("chunk size differs from state")),
             ["I", s, e] => it.insert(s.parse().map_err(|_| bad("num"))?, e.parse().map_err(|_| bad("num"))?),
             _ => {}
