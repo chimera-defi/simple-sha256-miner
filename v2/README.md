@@ -61,7 +61,8 @@ use a new `--state` dir.
 | `blake3` | optional BLAKE3 | CC0/Apache-2.0 |
 | `clap`, `base64`, `hex`, `serde_json` | CLI, encodings, proofs | MIT/Apache-2.0 |
 
-The repo itself has no license file yet.
+The repo itself has no root license file, so none is granted for its own code. The
+vendored `vendor/tape-sha256` carries its own Apache-2.0 `LICENSE`, which covers only that crate.
 
 ## Speed
 
@@ -71,8 +72,12 @@ messages that fit one block. The miner needs only those bits to test a prefix, s
 this skips the byte-wise digest output. The patch is in `vendor/tape-sha256/PATCH.diff`.
 It takes the fast path on AVX2 CPUs without AVX-512 (that is the CPU measured here)
 and falls back to the stock `hash_many_prefixed` for everything else, so results are
-always the same. The only `unsafe` code is that patch (AVX2 intrinsics) and the signal
-setup in `main.rs`. Every hit is still re-checked with `sha2`. 
+always the same. `unsafe` code lives in three places: the patch (AVX2 intrinsics), the
+opt-in custom kernel `src/avx2.rs`, and the signal setup in `main.rs`. Every hit is
+still re-checked with `sha2`.
+
+**Recommendation:** use the default `--backend lib`. It is the fastest backend we
+measured; the numbers below come from one noisy shared host and are not portable.
 
 ### Backends
 
@@ -82,27 +87,33 @@ refuses to start, with no silent fallback, without AVX2, with `--algorithm blake
 when `len(input)+21 >= 56`. Both give identical digests, and the backend is not part
 of the state key: a run can resume under the other one.
 
-Backend run, 6 threads, 8 s each, unreachable 10-char prefix, alternating, fresh state,
-shared host (1-min load 5.4 to 9.7 over the runs, so noisy). MH/s, 3 runs each:
+Latest paired run: 6 threads, 8 s each, unreachable 10-char prefix, alternating, fresh
+state, shared host (1-min load 5.4 to 9.7 over the runs, so noisy). MH/s, 3 runs each;
+the medians are the headline, the minimums show how much the load moved them:
 
 | Backend | Median | Min-max |
 | --- | ---: | --- |
 | lib | 87.6 | 50.0-88.8 |
 | avx2 | 70.0 | 46.8-70.0 |
 
-Pick avx2 only if it measures faster on your CPU; on this host lib wins.
+Pick avx2 only if it measures faster on your CPU; on this host lib wins (median 87.6
+against 70.0). A controlled run is planned but NOT RUN: see [docs/WORKLOG.md](../docs/WORKLOG.md).
 
-Earlier measurements (5 s runs), measured with the miner itself: unreachable 10-char prefix, 5 s runs, 3-4 runs
-alternating between builds, fresh state dir each, other jobs running on the same
+Earlier measurements (means of 3-4 runs, 5 s each), measured with the miner itself:
+unreachable 10-char prefix, alternating between builds, fresh state dir each, other jobs running on the same
 12-core i7-8700 (load 4-7, so numbers move). Rate is `rate_MH/s` on the last line.
 
 | Build | Threads | MH/s per run | Mean |
 | --- | --- | --- | --- |
-| before: stock `tape-sha256` | 6 | 58.0, 64.6, 67.8 | 63 |
-| before: hand-written AVX2 (removed) | 6 | 76.6, 79.2, 82.4 | 79 |
-| now: `hash_short_heads` | 6 | 105.2, 90.1, 95.4 | 97 |
-| before: hand-written AVX2 (removed) | 11 | 96.9, 97.8, 97.1 | 97 |
-| now: `hash_short_heads` | 11 | 108.8, 109.7, 107.9 | 109 |
+| stock `tape-sha256` | 6 | 58.0, 64.6, 67.8 | 63 |
+| custom AVX2 (`--backend avx2`) | 6 | 76.6, 79.2, 82.4 | 79 |
+| patched lib (`hash_short_heads`) | 6 | 105.2, 90.1, 95.4 | 97 |
+| custom AVX2 (`--backend avx2`) | 11 | 96.9, 97.8, 97.1 | 97 |
+| patched lib (`hash_short_heads`) | 11 | 108.8, 109.7, 107.9 | 109 |
+
+The 6-thread 105.2 and the 11-thread 109.7 are single-run peaks, not typical results:
+the 6-thread mean was 97 and no 6-thread run reached 110. All numbers are from one
+i7-8700 under load and do not transfer to other CPUs.
 
 Tried and not kept (no gain beyond the noise, 4 alternating runs each, 6 threads):
 batch size 64 (92) and 256 (96) against 128 (95); `--chunk` 2^16 (92) and 2^20 (94)

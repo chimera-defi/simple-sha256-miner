@@ -25,9 +25,20 @@ target/release/vanity-miner --verify < proof.json      # recomputes everything
 ```
 
 Options: `--input TEXT` (hashed as `TEXT:<nonce>`), `--algorithm sha256|blake3`,
-`--encoding base64|hex`, `--threads N`, `--backend lib|avx2`, Base64 prefixes are case-sensitive; hex is lowercase.
+`--encoding base64|hex`, `--threads N`, `--backend lib|avx2`. Base64 prefixes are case-sensitive; hex is lowercase.
 Each extra prefix character makes the expected work 64× (base64) or 16× (hex)
 larger. No promise of when a match appears.
+
+**Recommended: the default `--backend lib`** (patched `tape-sha256`). It was the fastest
+backend we measured, on one host with a noisy load; see [v2 speed](v2/README.md#speed).
+The hand-written `--backend avx2` stays as an opt-in.
+
+## License
+
+This repo has **no root license file**, so no licence or permission is granted for its
+own code. The vendored `v2/vendor/tape-sha256` keeps its own Apache-2.0 licence
+(`v2/vendor/tape-sha256/LICENSE`), which covers only that crate. The other crates are
+used as dependencies under their own licences.
 
 Follow-ups: [docs/WORKLOG.md](docs/WORKLOG.md). How it got faster: [visual explainer](docs/performance-eli5.html).
 
