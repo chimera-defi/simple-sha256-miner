@@ -58,7 +58,7 @@ fn main() {
             let s = { // claim lowest uncovered chunk >= cursor
                 let mut g = sh.lock().unwrap();
                 let s = g.done.next_free(g.cursor);
-                g.cursor = s + chunk;
+                match s.checked_add(chunk) { Some(e) => g.cursor = e, None => return }
                 s
             };
             match mine_range(s, chunk, &prefix, &STOP) {

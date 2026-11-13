@@ -56,18 +56,30 @@ pub struct Store {
 impl Store {
     pub fn open(dir: &Path, prefix: &str, chunk: u64) -> io::Result<Store> {
         fs::create_dir_all(dir)?;
+        let bad = |m: &str| io::Error::new(io::ErrorKind::InvalidData, m.to_string());
+        let header = format!("H {prefix} {chunk}");
         let mut done = Intervals::default();
-        if let Ok(txt) = fs::read_to_string(dir.join("checkpoint.txt")) {
-            done = parse_checkpoint(&txt, prefix, chunk)?;
+        let ck = fs::read_to_string(dir.join("checkpoint.txt")).ok();
+        if let Some(txt) = &ck {
+            done = parse_checkpoint(txt, prefix, chunk)?; // binds prefix + chunk
         }
+        let mut hdr_ok = false;
         if let Ok(txt) = fs::read_to_string(dir.join("journal.log")) {
-            for line in txt.lines() {
+            let mut lines = txt.lines().peekable();
+            if let Some(h) = lines.next_if(|l| l.starts_with("H ")) {
+                if h != header { return Err(bad("journal is for a different prefix or chunk size")); }
+                hdr_ok = true;
+            }
+            for line in lines {
                 if let Some((s, e)) = parse_journal_line(line) {
+                    // fail closed: unbound intervals are only trusted next to a checkpoint
+                    if !hdr_ok && ck.is_none() { return Err(bad("journal has no header and no checkpoint; refusing to trust it")); }
                     done.insert(s, e); // torn/corrupt lines are skipped
                 }
             }
         }
-        let journal = OpenOptions::new().create(true).append(true).open(dir.join("journal.log"))?;
+        let mut journal = OpenOptions::new().create(true).append(true).open(dir.join("journal.log"))?;
+        if journal.metadata()?.len() == 0 { writeln!(journal, "{header}")?; journal.sync_all()?; }
         File::open(dir)?.sync_all()?; // make the journal's directory entry durable
         Ok(Store { dir: dir.to_path_buf(), prefix: prefix.into(), chunk, done, journal })
     }
@@ -98,6 +110,7 @@ impl Store {
         fs::rename(&tmp, self.dir.join("checkpoint.txt"))?;
         File::open(&self.dir)?.sync_all()?;
         self.journal.set_len(0)?;
+        writeln!(self.journal, "H {} {}", self.prefix, self.chunk)?;
         self.journal.sync_all()
     }
 }

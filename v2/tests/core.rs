@@ -59,3 +59,20 @@ fn journal_checkpoint_recovery_and_torn_tail() {
     assert!(Store::open(&d, "gensys", 8).is_err());
     let _ = std::fs::remove_dir_all(&d);
 }
+
+#[test]
+fn journal_without_checkpoint_is_bound_to_prefix_and_chunk() {
+    let d = std::env::temp_dir().join(format!("gs-bind-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    let mut s = Store::open(&d, "aaa", 8).unwrap();
+    s.append(&[(0, 8)]).unwrap();
+    drop(s); // no checkpoint written: journal only
+    assert!(Store::open(&d, "bbb", 8).is_err(), "other prefix must be refused");
+    assert!(Store::open(&d, "aaa", 16).is_err(), "other chunk must be refused");
+    assert_eq!(Store::open(&d, "aaa", 8).unwrap().done.total(), 8);
+    // headerless (legacy) journal with no checkpoint: refuse
+    let j = std::fs::read_to_string(d.join("journal.log")).unwrap();
+    std::fs::write(d.join("journal.log"), j.split_once('\n').unwrap().1).unwrap();
+    assert!(Store::open(&d, "aaa", 8).is_err());
+    let _ = std::fs::remove_dir_all(&d);
+}
