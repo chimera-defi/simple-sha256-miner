@@ -14,6 +14,8 @@ struct Cli {
     #[arg(long, alias = "seed", default_value = "gensys")] input: String,
     #[arg(long, value_enum, default_value = "sha256")] algorithm: Algo,
     #[arg(long, value_enum, default_value = "base64")] encoding: Enc,
+    /// SHA-256 engine: lib (default) or avx2 (opt-in, x86-64 only, sha256 only, short input).
+    #[arg(long, value_enum, default_value = "lib")] backend: Backend,
     #[arg(long, default_value_t = 6)] threads: usize,
     #[arg(long, default_value = "state")] state: PathBuf,
     #[arg(long, default_value_t = 1 << 18)] chunk: u64,
@@ -38,6 +40,7 @@ fn main() {
     if c.verify { return run_verify(&c, &prefix); }
     let sp = Spec { algo: c.algorithm, enc: c.encoding, input: c.input.clone(), prefix };
     if let Err(e) = sp.target() { die(&e); }
+    if let Err(e) = check_backend(&sp, c.backend) { die(&e); }
     if c.threads == 0 || c.chunk == 0 || c.start_nonce % c.chunk != 0 || c.start_nonce == NONCE_END { die("need threads >= 1, chunk >= 1, start-nonce a multiple of chunk and below 2^64-1"); }
     let (chunk, dir) = (c.chunk, c.state.clone());
     std::fs::create_dir_all(&dir).unwrap();
@@ -57,13 +60,13 @@ fn main() {
     }
     unsafe { signal(2, on_sig); signal(15, on_sig); }
     let mut store = Store::open(&dir, &sp.key(), chunk).unwrap_or_else(|e| die(&format!("state: {e}")));
-    eprintln!("START algo={} prefix={} threads={} chunk={chunk} completed_nonces={}", name(&c.algorithm), sp.prefix, c.threads, store.done.total());
+    eprintln!("START algo={} backend={:?} prefix={} threads={} chunk={chunk} completed_nonces={}", name(&c.algorithm), c.backend, sp.prefix, c.threads, store.done.total());
     let sh = Arc::new(Mutex::new(Shared { cursor: c.start_nonce, pending: vec![], done: store.done.clone() }));
     let hashed = Arc::new(AtomicU64::new(0));
     let found = Arc::new(Mutex::new(None));
     let t0 = Instant::now();
     let hs: Vec<_> = (0..c.threads).map(|_| {
-        let (sh, hashed, found, sp) = (sh.clone(), hashed.clone(), found.clone(), sp.clone());
+        let (sh, hashed, found, sp, be) = (sh.clone(), hashed.clone(), found.clone(), sp.clone(), c.backend);
         std::thread::spawn(move || loop {
             if STOP.load(Ordering::Relaxed) { return; }
             let (s, e) = { // claim the lowest uncovered chunk at or after the cursor
@@ -74,7 +77,7 @@ fn main() {
                 g.cursor = e;
                 (s, e)
             };
-            match mine_range(&sp, s, e - s, &STOP) {
+            match mine_range(&sp, s, e - s, &STOP, be) {
                 ChunkResult::Done => {
                     hashed.fetch_add(e - s, Ordering::Relaxed);
                     let mut g = sh.lock().unwrap();

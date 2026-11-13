@@ -32,8 +32,8 @@ fn miner_finds_the_first_reference_hit_for_both_algorithms() {
         let first = (0u64..).find(|&n| sp.matches(n).is_some()).unwrap();
         let stop = AtomicBool::new(false);
         let s = first / 8 * 8;
-        assert_eq!(mine_range(&sp, 0, s, &stop), ChunkResult::Done); // nothing missed before it
-        assert_eq!(mine_range(&sp, s, 64, &stop), ChunkResult::Found(first));
+        assert_eq!(mine_range(&sp, 0, s, &stop, Backend::Lib), ChunkResult::Done); // nothing missed before it
+        assert_eq!(mine_range(&sp, s, 64, &stop, Backend::Lib), ChunkResult::Found(first));
     }
 }
 
@@ -133,13 +133,13 @@ fn mine_range_covers_odd_lengths_and_the_top_of_the_nonce_space() {
     let stop = AtomicBool::new(false);
     let sp = spec(Algo::Sha256, Enc::Base64, "ge");
     let first = (0u64..).find(|&n| sp.matches(n).is_some()).unwrap();
-    for len in [first + 1, first + 5] { assert_eq!(mine_range(&sp, 0, len, &stop), ChunkResult::Found(first)); }
-    assert_eq!(mine_range(&spec(Algo::Sha256, Enc::Base64, "zzzzzz"), 7, 5003, &stop), ChunkResult::Done);
+    for len in [first + 1, first + 5] { assert_eq!(mine_range(&sp, 0, len, &stop, Backend::Lib), ChunkResult::Found(first)); }
+    assert_eq!(mine_range(&spec(Algo::Sha256, Enc::Base64, "zzzzzz"), 7, 5003, &stop, Backend::Lib), ChunkResult::Done);
     // the last mineable nonce is u64::MAX - 1 (20 digits): a hit there must be found
     let top = Spec { enc: Enc::Hex, ..sp };
     let last = u64::MAX - 1;
     let top = Spec { prefix: hex::encode(top.digest(last))[..10].into(), ..top };
-    assert_eq!(mine_range(&top, NONCE_END - 1000, 1000, &stop), ChunkResult::Found(last));
+    assert_eq!(mine_range(&top, NONCE_END - 1000, 1000, &stop, Backend::Lib), ChunkResult::Found(last));
 }
 
 #[test]
@@ -156,5 +156,74 @@ fn nonce_space_end_is_exactly_once_and_exits() {
         assert_eq!(o.status.code(), Some(3), "{err}");
         assert!(err.contains(&format!("EXHAUSTED total_completed={}", chunk - 1)), "{err}");
     }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn avx2_digests_equal_reference() {
+    if !avx2::available() { eprintln!("note: no AVX2, skipping"); return; }
+    let sp = spec(Algo::Sha256, Enc::Base64, "zzzz");
+    let pre = b"gensys:".to_vec();
+    let mut nonces: Vec<u64> = (0..20_000).chain(99_990..100_010).chain(999_999_990..1_000_000_010).collect();
+    nonces.extend((0..20).map(|i| u64::MAX - i));
+    for ch in nonces.chunks(8) {
+        let txt: Vec<String> = (0..8).map(|j| ch[j.min(ch.len() - 1)].to_string()).collect();
+        let b: [&[u8]; 8] = std::array::from_fn(|j| txt[j].as_bytes());
+        let out = avx2::hash8(&pre, b);
+        for j in 0..ch.len() { assert_eq!(out[j], sp.digest(ch[j]), "nonce {}", ch[j]); }
+    }
+}
+
+#[test]
+fn both_backends_find_the_same_winner() {
+    if !avx2::available() { eprintln!("note: no AVX2, skipping"); return; }
+    let sp = spec(Algo::Sha256, Enc::Base64, "ge");
+    let first = (0u64..).find(|&n| sp.matches(n).is_some()).unwrap();
+    let stop = AtomicBool::new(false);
+    for len in [first + 5, first + 1] { // odd lengths exercise the short last lane group
+        for be in [Backend::Lib, Backend::Avx2] {
+            assert_eq!(mine_range(&sp, 0, len, &stop, be), ChunkResult::Found(first), "{be:?}");
+        }
+    }
+    let none = spec(Algo::Sha256, Enc::Base64, "zzzzzz");
+    for be in [Backend::Lib, Backend::Avx2] { assert_eq!(mine_range(&none, 7, 5003, &stop, be), ChunkResult::Done); }
+}
+
+#[test]
+fn checkpoints_resume_across_backends() {
+    if !avx2::available() { eprintln!("note: no AVX2, skipping"); return; }
+    let d = std::env::temp_dir().join(format!("vm-xb-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    let ds = d.to_str().unwrap();
+    let go = |be: &str| String::from_utf8(run(&["--prefix", "zzzzzzzzz", "--threads", "2", "--chunk", "4096", "--max-secs", "1",
+        "--backend", be, "--state", ds]).stderr).unwrap();
+    let total = |e: &str| e.split("completed_nonces=").nth(1).unwrap().split_whitespace().next().unwrap().parse::<u64>().unwrap();
+    let a = go("lib");
+    assert_eq!(total(&a), 0);
+    let b = go("avx2");
+    assert!(total(&b) > 0, "avx2 run did not see lib's coverage: {b}");
+    let c = go("lib");
+    assert!(total(&c) > total(&b), "lib run did not see avx2's coverage: {c}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn avx2_backend_refuses_blake3_and_long_input() {
+    let d = std::env::temp_dir().join(format!("vm-bad-{}", std::process::id()));
+    let ds = d.to_str().unwrap();
+    assert!(!run(&["--prefix", "ab", "--backend", "avx2", "--algorithm", "blake3", "--state", ds]).status.success());
+    let long = "x".repeat(40);
+    assert!(!run(&["--prefix", "ab", "--backend", "avx2", "--input", &long, "--state", ds]).status.success());
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn nonce_space_end_exits_under_avx2_too() {
+    if !avx2::available() { return; }
+    let start = (u64::MAX / (1u64 << 18) * (1u64 << 18)).to_string();
+    let d = std::env::temp_dir().join(format!("vm-end2-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    let o = run(&["--prefix", "ffffffffffffffff", "--encoding", "hex", "--backend", "avx2", "--threads", "3", "--start-nonce", &start, "--state", d.to_str().unwrap()]);
+    assert_eq!(o.status.code(), Some(3));
     let _ = std::fs::remove_dir_all(&d);
 }

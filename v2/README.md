@@ -10,7 +10,7 @@ not done.
 cargo build --release
 vanity-miner --prefix PREFIX [--input TEXT] [--algorithm sha256|blake3]
              [--encoding base64|hex] [--threads N] [--state DIR]
-             [--chunk C] [--start-nonce S] [--max-secs T]
+             [--backend lib|avx2] [--chunk C] [--start-nonce S] [--max-secs T]
 vanity-miner --verify < proof.json
 vanity-miner --verify --input TEXT --nonce N --digest D --prefix P \
              [--algorithm A] [--encoding E]
@@ -72,10 +72,27 @@ this skips the byte-wise digest output. The patch is in `vendor/tape-sha256/PATC
 It takes the fast path on AVX2 CPUs without AVX-512 (that is the CPU measured here)
 and falls back to the stock `hash_many_prefixed` for everything else, so results are
 always the same. The only `unsafe` code is that patch (AVX2 intrinsics) and the signal
-setup in `main.rs`. Every hit is still re-checked with `sha2`. The patch is local only:
-no upstream pull request has been opened.
+setup in `main.rs`. Every hit is still re-checked with `sha2`. 
 
-Measured with the miner itself: unreachable 10-char prefix, 5 s runs, 3-4 runs
+### Backends
+
+`--backend lib` (default) uses the patched `tape-sha256` path above. `--backend avx2`
+is an opt-in hand-written 8-lane kernel (`src/avx2.rs`, all its SIMD `unsafe`). It
+refuses to start, with no silent fallback, without AVX2, with `--algorithm blake3`, or
+when `len(input)+21 >= 56`. Both give identical digests, and the backend is not part
+of the state key: a run can resume under the other one.
+
+Backend run, 6 threads, 8 s each, unreachable 10-char prefix, alternating, fresh state,
+shared host (1-min load 5.4 to 9.7 over the runs, so noisy). MH/s, 3 runs each:
+
+| Backend | Median | Min-max |
+| --- | ---: | --- |
+| lib | 87.6 | 50.0-88.8 |
+| avx2 | 70.0 | 46.8-70.0 |
+
+Pick avx2 only if it measures faster on your CPU; on this host lib wins.
+
+Earlier measurements (5 s runs), measured with the miner itself: unreachable 10-char prefix, 5 s runs, 3-4 runs
 alternating between builds, fresh state dir each, other jobs running on the same
 12-core i7-8700 (load 4-7, so numbers move). Rate is `rate_MH/s` on the last line.
 
@@ -103,8 +120,4 @@ status 3; rerunning against the same state exits the same way at once.
 Prefix is 1-10 base64 or 1-16 hex characters, matched at the start of the
 encoded digest. Output is the 32-byte digest only.
 
-## Pending work
-
-1. Upstream the `hash_short_heads` patch to `tape-sha256` (recommended target). Not
-   done: it needs your approval first.
-2. Nothing else is open.
+Follow-ups: [docs/WORKLOG.md](../docs/WORKLOG.md).

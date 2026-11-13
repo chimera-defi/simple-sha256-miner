@@ -1,5 +1,9 @@
 //! Vanity-hash search: find `n` so that encode(H("<input>:<n>")) starts with `prefix`.
 pub mod state;
+#[cfg(target_arch = "x86_64")]
+pub mod avx2;
+#[cfg(not(target_arch = "x86_64"))]
+pub mod avx2 { pub fn available() -> bool { false } pub fn hash8(_: &[u8], _: [&[u8]; 8]) -> [[u8; 32]; 8] { unreachable!() } }
 use base64::{engine::general_purpose::STANDARD, Engine};
 use clap::ValueEnum;
 use serde_json::{json, Value};
@@ -9,6 +13,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub enum Algo { Sha256, Blake3 }
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 pub enum Enc { Base64, Hex }
+/// SHA-256 engine. Does not change what is searched, so it is not part of the state key.
+#[derive(Clone, Copy, PartialEq, ValueEnum, Debug)]
+pub enum Backend { Lib, Avx2 }
+
+/// Startup check for an explicit `--backend avx2`: no silent fallback.
+pub fn check_backend(sp: &Spec, be: Backend) -> Result<(), String> {
+    if be == Backend::Lib { return Ok(()); }
+    if sp.algo != Algo::Sha256 { return Err("--backend avx2 supports sha256 only".into()); }
+    if !avx2::available() { return Err("--backend avx2: this CPU has no AVX2".into()); }
+    if sp.input.len() + 1 + 20 >= 56 { return Err("--backend avx2: input too long for one block (need len(input)+21 < 56)".into()); }
+    Ok(())
+}
+
 pub fn name<T: ValueEnum>(v: &T) -> String { v.to_possible_value().unwrap().get_name().to_string() }
 fn parse<T: ValueEnum>(s: &str) -> Result<T, String> { T::from_str(s, false) }
 
@@ -83,7 +100,7 @@ pub const NONCE_END: u64 = u64::MAX;
 
 /// Hash nonces [start, start+len). Done means EVERY nonce was hashed; hits are re-confirmed
 /// with the reference implementation.
-pub fn mine_range(sp: &Spec, start: u64, len: u64, stop: &AtomicBool) -> ChunkResult {
+pub fn mine_range(sp: &Spec, start: u64, len: u64, stop: &AtomicBool, be: Backend) -> ChunkResult {
     let (t, bits) = sp.target().expect("bad prefix");
     let m = bits.min(32); // prefilter on the top m bits of the first digest word
     let (want, shift) = ((t >> (bits - m)) as u32, 32 - m);
@@ -113,7 +130,16 @@ pub fn mine_range(sp: &Spec, start: u64, len: u64, stop: &AtomicBool) -> ChunkRe
                 }
             }
             let bodies: [&[u8]; BATCH] = std::array::from_fn(|i| &buf[i][..ln[i]]);
-            tape_sha256::hash_short_heads(&pre, &bodies[..cnt], &mut heads[..cnt]);
+            if be == Backend::Avx2 {
+                for g in (0..cnt).step_by(8) { // a short last group repeats its final lane; extras are ignored
+                    let b: [&[u8]; 8] = std::array::from_fn(|j| { let i = (g + j).min(cnt - 1); &buf[i][..ln[i]] });
+                    for (j, d) in avx2::hash8(&pre, b).iter().enumerate().take(cnt - g) {
+                        heads[g + j] = u32::from_be_bytes(d[..4].try_into().unwrap());
+                    }
+                }
+            } else {
+                tape_sha256::hash_short_heads(&pre, &bodies[..cnt], &mut heads[..cnt]);
+            }
         } else {
             for i in 0..cnt {
                 let mut msg = pre.clone();

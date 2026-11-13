@@ -8,6 +8,7 @@ matching hash; it never edits the digest. This is not Bitcoin mining.
 
 | | Language | Speed (6 threads) | Resume |
 | --- | --- | ---: | --- |
+| `v0/` | Python, single thread | not measured | none |
 | `v1/` | C++, OpenSSL | ~2.66 M hashes/s | none |
 | `v2/` | Rust, library crates | see [v2](v2/README.md#speed) | yes, by completed range |
 
@@ -24,14 +25,11 @@ target/release/vanity-miner --verify < proof.json      # recomputes everything
 ```
 
 Options: `--input TEXT` (hashed as `TEXT:<nonce>`), `--algorithm sha256|blake3`,
-`--encoding base64|hex`, `--threads N`, Base64 prefixes are case-sensitive; hex is lowercase.
+`--encoding base64|hex`, `--threads N`, `--backend lib|avx2`, Base64 prefixes are case-sensitive; hex is lowercase.
 Each extra prefix character makes the expected work 64× (base64) or 16× (hex)
 larger. No promise of when a match appears.
 
-## Not built yet
-
-- Matching anywhere but the start of the digest.
-- Multi-lane BLAKE3 (it hashes one nonce at a time).
+Follow-ups: [docs/WORKLOG.md](docs/WORKLOG.md).
 
 ## Who did what
 
