@@ -24,7 +24,8 @@ target/release/vanity-miner --verify < proof.json      # recomputes everything
 ```
 
 Options: `--input TEXT` (hashed as `TEXT:<nonce>`), `--algorithm sha256|blake3`,
-`--encoding base64|hex`. Base64 prefixes are case-sensitive; hex is lowercase.
+`--encoding base64|hex`, `--backend lib|avx2` (default `lib`; `avx2` is opt-in,
+x86-64 and sha256 only). Base64 prefixes are case-sensitive; hex is lowercase.
 Each extra prefix character makes the expected work 64× (base64) or 16× (hex)
 larger. No promise of when a match appears.
 

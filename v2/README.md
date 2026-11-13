@@ -9,7 +9,7 @@ not done.
 ```sh
 cargo build --release
 vanity-miner --prefix PREFIX [--input TEXT] [--algorithm sha256|blake3]
-             [--encoding base64|hex] [--threads N] [--state DIR]
+             [--encoding base64|hex] [--backend lib|avx2] [--threads N] [--state DIR]
              [--chunk C] [--start-nonce S] [--max-secs T]
 vanity-miner --verify < proof.json
 vanity-miner --verify --input TEXT --nonce N --digest D --prefix P \
@@ -63,21 +63,45 @@ use a new `--state` dir.
 
 The repo itself has no license file yet.
 
+## Backends
+
+`--backend lib|avx2` picks the SHA-256 engine. The default is `lib`.
+
+- `lib`: `tape-sha256`, with a running decimal counter and reused buffers. It
+  picks AVX2 or AVX-512 by itself and works on any CPU.
+- `avx2`: the hand-written 8-lane AVX2 kernel from `0002a38`, in `src/avx2.rs`
+  (the only `unsafe` in the crate). x86-64 with AVX2 only, sha256 only, and the
+  input must be short (`len(input) + 21 < 56`). Anything else exits with an
+  error. It never falls back silently.
+
+Pick `avx2` only if it is faster on your CPU. Measure it. On the test machine it
+was (6 threads, 10 s runs, 3 alternating runs each, load 3-6 from other work):
+
+| Backend | Threads | MH/s median | Min-max |
+| --- | --- | --- | --- |
+| lib | 6 | 69.9 | 69.2-74.1 |
+| avx2 | 6 | 82.5 | 82.3-82.6 |
+| lib | 11 | 80.0 | one run |
+| avx2 | 11 | 102.4 | one run |
+
+Both backends hash the same messages and give the same digests, and every hit is
+re-checked with `sha2`. The backend is not part of the state key, so a
+checkpoint made with one backend resumes with the other.
+
 ## Speed
 
-1 thread, `nice 19`, 5 s runs, sha256, same machine, with another miner busy on
-other cores. Measured by Claude.
+Measured by Claude with the miner itself: unreachable 10-char prefix, 10 s,
+sha256, other jobs running on the same 12-core machine (load 3-6, so numbers
+move). The rate is printed as `rate_MH/s` on the last line.
 
-| Hasher | MH/s (3 runs) |
-| --- | --- |
-| earlier hand-written AVX2 (v2 at `0002a38`) | 17.7, 17.5, 17.5 |
-| `tape-sha256` (now) | 14.4, 14.5, 14.5 |
+| Hasher | Threads | MH/s |
+| --- | --- | --- |
+| `tape-sha256` + running counter (default) | 6 | 69.9 median (69.2-74.1) |
+| hand-written AVX2 (`--backend avx2`) | 6 | 82.5 median (82.3-82.6) |
 
-`tape-sha256` is about **18% slower** here. We took it for 100 fewer lines and
-no `unsafe`. The old code is in git history if the speed matters more. 6-thread
-runs were skipped to leave the live search alone; the earlier ~72.7 M/s on 6
-threads came from ChatGPT's run logs and is for the old hasher. BLAKE3 is
-unbenchmarked and is not lane-batched.
+The earlier 1-thread figures (17.7 for the old AVX2 code, 14.4 for plain
+`tape-sha256`) were taken before the running counter and are not comparable to
+the table. BLAKE3 is unbenchmarked and is not lane-batched.
 
 ## Limits
 

@@ -32,8 +32,8 @@ fn miner_finds_the_first_reference_hit_for_both_algorithms() {
         let first = (0u64..).find(|&n| sp.matches(n).is_some()).unwrap();
         let stop = AtomicBool::new(false);
         let s = first / 8 * 8;
-        assert_eq!(mine_range(&sp, 0, s, &stop), ChunkResult::Done); // nothing missed before it
-        assert_eq!(mine_range(&sp, s, 64, &stop), ChunkResult::Found(first));
+        assert_eq!(mine_range(&sp, 0, s, &stop, Backend::Lib), ChunkResult::Done); // nothing missed before it
+        assert_eq!(mine_range(&sp, s, 64, &stop, Backend::Lib), ChunkResult::Found(first));
     }
 }
 
@@ -100,4 +100,69 @@ fn found_json_is_reverified_before_it_is_returned() {
     let mut t = good.clone();
     t["message"] = "gensys:1".into();
     assert!(!run(&t, "mOfz"), "inconsistent message must be refused");
+}
+
+fn avx2_spec() -> Spec { spec(Algo::Sha256, Enc::Base64, "zzzz") }
+
+#[test]
+fn avx2_digests_equal_reference() {
+    if !avx2::available() { eprintln!("note: no AVX2, skipping"); return; }
+    let sp = avx2_spec();
+    let pre = b"gensys:".to_vec();
+    let mut nonces: Vec<u64> = (0..20_000).chain(99_990..100_010).chain(999_999_990..1_000_000_010).collect();
+    nonces.extend((0..20).map(|i| u64::MAX - i));
+    for ch in nonces.chunks(8) {
+        let txt: Vec<String> = (0..8).map(|j| ch[j.min(ch.len() - 1)].to_string()).collect();
+        let b: [&[u8]; 8] = std::array::from_fn(|j| txt[j].as_bytes());
+        let out = avx2::hash8(&pre, b);
+        for j in 0..ch.len() { assert_eq!(out[j], sp.digest(ch[j]), "nonce {}", ch[j]); }
+    }
+}
+
+#[test]
+fn both_backends_find_the_same_winner() {
+    if !avx2::available() { eprintln!("note: no AVX2, skipping"); return; }
+    let sp = spec(Algo::Sha256, Enc::Base64, "ge");
+    let first = (0u64..).find(|&n| sp.matches(n).is_some()).unwrap();
+    let stop = AtomicBool::new(false);
+    for len in [first + 5, first + 1] { // odd lengths exercise the short last lane group
+        for be in [Backend::Lib, Backend::Avx2] {
+            assert_eq!(mine_range(&sp, 0, len, &stop, be), ChunkResult::Found(first), "{be:?}");
+        }
+    }
+    let none = spec(Algo::Sha256, Enc::Base64, "zzzzzz");
+    for be in [Backend::Lib, Backend::Avx2] { assert_eq!(mine_range(&none, 7, 5003, &stop, be), ChunkResult::Done); }
+}
+
+fn run(args: &[&str]) -> std::process::Output {
+    std::process::Command::new(env!("CARGO_BIN_EXE_vanity-miner")).args(args).output().unwrap()
+}
+
+#[test]
+fn checkpoints_resume_across_backends() {
+    if !avx2::available() { eprintln!("note: no AVX2, skipping"); return; }
+    let d = std::env::temp_dir().join(format!("vm-xb-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    let ds = d.to_str().unwrap();
+    let go = |be: &str| String::from_utf8(run(&["--prefix", "zzzzzzzzz", "--threads", "2", "--chunk", "4096", "--max-secs", "1",
+        "--backend", be, "--state", ds]).stderr).unwrap();
+    let total = |e: &str| e.split("completed_nonces=").nth(1).unwrap().split_whitespace().next().unwrap().parse::<u64>().unwrap();
+    let a = go("lib");
+    assert_eq!(total(&a), 0);
+    let b = go("avx2");
+    assert!(total(&b) > 0, "avx2 run did not see lib's coverage: {b}");
+    let c = go("lib");
+    assert!(total(&c) > total(&b), "lib run did not see avx2's coverage: {c}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn avx2_backend_refuses_blake3_and_long_input() {
+    let d = std::env::temp_dir().join(format!("vm-bad-{}", std::process::id()));
+    let ds = d.to_str().unwrap();
+    assert!(!run(&["--prefix", "ab", "--backend", "avx2", "--algorithm", "blake3", "--state", ds]).status.success());
+    let long = "x".repeat(40);
+    let o = run(&["--prefix", "ab", "--backend", "avx2", "--input", &long, "--state", ds]);
+    assert!(!o.status.success());
+    let _ = std::fs::remove_dir_all(&d);
 }

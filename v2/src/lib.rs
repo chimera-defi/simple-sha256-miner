@@ -1,5 +1,9 @@
 //! Vanity-hash search: find `n` so that encode(H("<input>:<n>")) starts with `prefix`.
 pub mod state;
+#[cfg(target_arch = "x86_64")]
+pub mod avx2;
+#[cfg(not(target_arch = "x86_64"))]
+pub mod avx2 { pub fn available() -> bool { false } pub fn hash8(_: &[u8], _: [&[u8]; 8]) -> [[u8; 32]; 8] { unreachable!() } }
 use base64::{engine::general_purpose::STANDARD, Engine};
 use clap::ValueEnum;
 use serde_json::{json, Value};
@@ -9,6 +13,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub enum Algo { Sha256, Blake3 }
 #[derive(Clone, Copy, PartialEq, ValueEnum)]
 pub enum Enc { Base64, Hex }
+/// SHA-256 engine. Does not change what is searched, so it is not part of the state key.
+#[derive(Clone, Copy, PartialEq, ValueEnum, Debug)]
+pub enum Backend { Lib, Avx2 }
+
+/// Startup check for an explicit `--backend avx2`: no silent fallback.
+pub fn check_backend(sp: &Spec, be: Backend) -> Result<(), String> {
+    if be == Backend::Lib { return Ok(()); }
+    if sp.algo != Algo::Sha256 { return Err("--backend avx2 supports sha256 only".into()); }
+    if !avx2::available() { return Err("--backend avx2: this CPU has no AVX2".into()); }
+    if sp.input.len() + 1 + 20 >= 56 { return Err("--backend avx2: input too long for one block (need len(input)+21 < 56)".into()); }
+    Ok(())
+}
 
 pub fn name<T: ValueEnum>(v: &T) -> String { v.to_possible_value().unwrap().get_name().to_string() }
 fn parse<T: ValueEnum>(s: &str) -> Result<T, String> { T::from_str(s, false) }
@@ -81,30 +97,48 @@ const BATCH: usize = 128;
 
 /// Hash nonces [start, start+len). Done means EVERY nonce was hashed; hits are re-confirmed
 /// with the reference implementation.
-pub fn mine_range(sp: &Spec, start: u64, len: u64, stop: &AtomicBool) -> ChunkResult {
+pub fn mine_range(sp: &Spec, start: u64, len: u64, stop: &AtomicBool, be: Backend) -> ChunkResult {
     let (t, bits) = sp.target().expect("bad prefix");
     let m = bits.min(32); // prefilter on the top m bits of the first digest word
     let (want, shift) = ((t >> (bits - m)) as u32, 32 - m);
     let pre = format!("{}:", sp.input).into_bytes();
     let end = start + len;
     let mut n = start;
+    let mut heads = [0u32; BATCH];
+    let mut buf = [[0u8; 20]; BATCH];
+    let mut ln = [0usize; BATCH];
+    let mut out = [[0u8; 32]; BATCH];
     while n < end {
         if (n - start) / BATCH as u64 % 64 == 0 && stop.load(Ordering::Relaxed) { return ChunkResult::Stopped; }
         let cnt = BATCH.min((end - n) as usize);
-        let mut heads = [0u32; BATCH];
         if sp.algo == Algo::Sha256 {
-            let mut buf = [[0u8; 20]; BATCH];
-            let mut ln = [0usize; BATCH];
+            // decimal text of n, then step it up by one per lane instead of formatting each nonce
+            let (mut cur, mut x, mut k) = ([0u8; 20], n, 20);
+            loop { k -= 1; cur[k] = b'0' + (x % 10) as u8; x /= 10; if x == 0 { break; } }
+            let mut cl = 20 - k;
+            cur.copy_within(k.., 0);
             for i in 0..cnt {
-                let (mut x, mut k) = (n + i as u64, 20);
-                loop { k -= 1; buf[i][k] = b'0' + (x % 10) as u8; x /= 10; if x == 0 { break; } }
-                buf[i].copy_within(k.., 0);
-                ln[i] = 20 - k;
+                buf[i][..cl].copy_from_slice(&cur[..cl]);
+                ln[i] = cl;
+                let mut k = cl;
+                loop {
+                    if k == 0 { cur.copy_within(0..cl, 1); cur[0] = b'1'; cl += 1; break; }
+                    k -= 1;
+                    if cur[k] == b'9' { cur[k] = b'0' } else { cur[k] += 1; break }
+                }
             }
-            let bodies: [&[u8]; BATCH] = std::array::from_fn(|i| &buf[i][..ln[i]]);
-            let mut out = [[0u8; 32]; BATCH];
-            tape_sha256::hash_many_prefixed(&pre, &bodies[..cnt], &mut out[..cnt]);
-            for i in 0..cnt { heads[i] = u32::from_be_bytes(out[i][..4].try_into().unwrap()); }
+            if be == Backend::Avx2 {
+                for g in (0..cnt).step_by(8) { // a short last group repeats its final lane; extras are ignored
+                    let b: [&[u8]; 8] = std::array::from_fn(|j| { let i = (g + j).min(cnt - 1); &buf[i][..ln[i]] });
+                    for (j, d) in avx2::hash8(&pre, b).iter().enumerate().take(cnt - g) {
+                        heads[g + j] = u32::from_be_bytes(d[..4].try_into().unwrap());
+                    }
+                }
+            } else {
+                let bodies: [&[u8]; BATCH] = std::array::from_fn(|i| &buf[i][..ln[i]]);
+                tape_sha256::hash_many_prefixed(&pre, &bodies[..cnt], &mut out[..cnt]);
+                for i in 0..cnt { heads[i] = u32::from_be_bytes(out[i][..4].try_into().unwrap()); }
+            }
         } else {
             for i in 0..cnt {
                 let mut msg = pre.clone();
