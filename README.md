@@ -1,29 +1,44 @@
 # Simple SHA-256 Miner
 
-A small CPU vanity miner: try changing nonces until the **Base64-encoded SHA-256 digest starts with a chosen prefix**. It searches for a real matching hash; it does not insert characters into the digest.
+Small CPU search for a vanity hash. It tries nonces until the **Base64 form of
+`SHA-256(<phrase>:<nonce>)` starts with a chosen prefix**. It finds a real
+matching hash; it never edits the digest. This is not Bitcoin mining.
 
-- **`v1/`** — original C++ proof of concept, OpenSSL SHA-256, no durable resume.
-- **`v2/`** — Rust, native threads, eight-lane AVX2 SHA-256, completed-range journal and restartable checkpoints.
+**Use v2.** It is about 27× faster than v1 in our one measurement, and a stop or
+crash does not lose finished work.
 
-## Run v2
+| | Language | Speed (6 threads) | Resume |
+| --- | --- | ---: | --- |
+| `v1/` | C++, OpenSSL | ~2.66 M hashes/s | none |
+| `v2/` | Rust, AVX2 8-lane | ~72.7 M hashes/s | yes, by completed range |
+
+Speeds come from one CPU's run logs, reported by ChatGPT and not re-run by
+Claude. Treat them as one data point, not a portable benchmark. Details and a
+second cross-check are in [`v2/README.md`](v2/README.md#speed).
+
+## Quick start
 
 ```sh
 cd v2
 cargo build --release
-./target/release/gensys-miner --prefix gensys --threads 6 --state ./state --max-secs 6900
+./target/release/gensys-miner --prefix gensys --threads 6 --state ./state
 ```
 
-The `--prefix` flag sets the **Base64 digest prefix**, case-sensitive. Current v2 input is `gensys:<decimal nonce>`; changing the input phrase, hexadecimal matching, and BLAKE3 are **not implemented yet**. State is specific to the search settings; do not reuse it across different searches. `state/` is ignored by Git.
+Prefix match is case-sensitive. Each extra prefix character makes the expected
+work 64× larger; there is no promise of when a match appears.
 
-## Measured performance
+## Not built yet
 
-| Implementation | CPU threads | Throughput |
-| --- | ---: | ---: |
-| C++ v1, OpenSSL SHA-256 | 6 | ~2.66 million hashes/s |
-| Rust v2, AVX2 8-lane SHA-256 | 6 | ~72.7 million hashes/s |
+- A custom input phrase (v2 uses `gensys:<decimal nonce>`, fixed in code).
+- Hex matching.
+- BLAKE3.
 
-These are measurements from one CPU and are not portable benchmarks. Roughly **27× faster** in this experiment. V2 batches eight independent short SHA-256 messages per AVX2 operation, reduces per-hash overhead, and checks only the leading digest bits before doing a full scalar verification on a candidate. Thread count and contention also affect results; no single optimization has been isolated as the sole cause.
+## Who did what
 
-**Resume:** v2 persists only fully completed nonce intervals; interrupted partial chunks are retried. The original v1 progress counter cannot prove exact nonce coverage, so the v2 experiment restarted at nonce zero.
+1. **Chimera (operator):** set the goal, approved the work, owns the repo.
+2. **Claude:** engineered v2 (search, journal and checkpoint, tests, validator).
+3. **ChatGPT:** coordination, benchmark runs and early docs.
+4. **Codex:** no verified contribution, so none is claimed.
 
-This is a CPU vanity-search experiment, not Bitcoin mining. No guarantees on time to find a match: each additional Base64 prefix character makes the expected work 64× larger.
+Docs are written in the Wren plain-words style. Wren is a writing persona that
+Claude runs. It is not an author or account.
