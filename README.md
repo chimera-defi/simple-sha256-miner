@@ -6,6 +6,24 @@ matching hash; it never edits the digest. This is not Bitcoin mining.
 
 **Use v2.** It is far faster than v1, and a stop or crash does not lose finished work.
 
+## Performance snapshot (i7-8700, noisy, pre-hill-climb)
+
+The default `--backend lib` (patched `tape-sha256`) is the fastest backend measured.
+Millions of hashes per second (MH/s), 6 threads unless noted:
+
+| Measurement | stock `tape-sha256` | custom AVX2 (`--backend avx2`) | patched lib (default) |
+| --- | ---: | ---: | ---: |
+| Earlier means (3-4 runs, 5 s each, load 4-7) | 63 | 79 | 97 |
+| Latest paired medians (3 runs, 8 s each, load 5.4-9.7) | n/a | 70.0 | **87.6** |
+
+Observed single-run peaks for the patched lib: **105.2** MH/s at 6 threads and **109.7**
+MH/s at 11 threads. These are not sustained results, and no 6-thread run reached 110.
+
+Conditions: one shared 12-thread i7-8700 under other jobs, unreachable 10-char prefix,
+fresh state per run. There is no controlled idle-host benchmark yet, and the numbers do
+not transfer to other CPUs. Details: [Detailed benchmarks](v2/README.md#speed).
+Plain-words picture: [ELI5 performance explainer](docs/performance-eli5.html).
+
 | | Language | Speed (6 threads) | Resume |
 | --- | --- | ---: | --- |
 | `v0/` | Python, single thread | not measured | none |
