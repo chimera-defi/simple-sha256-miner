@@ -1,0 +1,9 @@
+**/target/
+**/state/
+**/checkpoint*
+**/journal.log
+**/FOUND.txt
+**/*.tmp
+*.log
+*.bin
+.DS_Store
