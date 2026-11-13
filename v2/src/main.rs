@@ -14,8 +14,6 @@ struct Cli {
     #[arg(long, alias = "seed", default_value = "gensys")] input: String,
     #[arg(long, value_enum, default_value = "sha256")] algorithm: Algo,
     #[arg(long, value_enum, default_value = "base64")] encoding: Enc,
-    /// SHA-256 engine: lib (default) or avx2 (opt-in, x86-64 only, sha256 only, short input).
-    #[arg(long, value_enum, default_value = "lib")] backend: Backend,
     #[arg(long, default_value_t = 6)] threads: usize,
     #[arg(long, default_value = "state")] state: PathBuf,
     #[arg(long, default_value_t = 1 << 18)] chunk: u64,
@@ -40,8 +38,7 @@ fn main() {
     if c.verify { return run_verify(&c, &prefix); }
     let sp = Spec { algo: c.algorithm, enc: c.encoding, input: c.input.clone(), prefix };
     if let Err(e) = sp.target() { die(&e); }
-    if let Err(e) = check_backend(&sp, c.backend) { die(&e); }
-    if c.threads == 0 || c.chunk == 0 || c.start_nonce % c.chunk != 0 { die("need threads >= 1, chunk >= 1, start-nonce a multiple of chunk"); }
+    if c.threads == 0 || c.chunk == 0 || c.start_nonce % c.chunk != 0 || c.start_nonce == NONCE_END { die("need threads >= 1, chunk >= 1, start-nonce a multiple of chunk and below 2^64-1"); }
     let (chunk, dir) = (c.chunk, c.state.clone());
     std::fs::create_dir_all(&dir).unwrap();
     let lock = std::fs::File::create(dir.join("lock")).unwrap(); // one miner per state dir
@@ -60,27 +57,29 @@ fn main() {
     }
     unsafe { signal(2, on_sig); signal(15, on_sig); }
     let mut store = Store::open(&dir, &sp.key(), chunk).unwrap_or_else(|e| die(&format!("state: {e}")));
-    eprintln!("START algo={} backend={:?} prefix={} threads={} chunk={chunk} completed_nonces={}", name(&c.algorithm), c.backend, sp.prefix, c.threads, store.done.total());
+    eprintln!("START algo={} prefix={} threads={} chunk={chunk} completed_nonces={}", name(&c.algorithm), sp.prefix, c.threads, store.done.total());
     let sh = Arc::new(Mutex::new(Shared { cursor: c.start_nonce, pending: vec![], done: store.done.clone() }));
     let hashed = Arc::new(AtomicU64::new(0));
     let found = Arc::new(Mutex::new(None));
     let t0 = Instant::now();
     let hs: Vec<_> = (0..c.threads).map(|_| {
-        let (sh, hashed, found, sp, be) = (sh.clone(), hashed.clone(), found.clone(), sp.clone(), c.backend);
+        let (sh, hashed, found, sp) = (sh.clone(), hashed.clone(), found.clone(), sp.clone());
         std::thread::spawn(move || loop {
             if STOP.load(Ordering::Relaxed) { return; }
-            let s = { // claim the lowest uncovered chunk at or after the cursor
+            let (s, e) = { // claim the lowest uncovered chunk at or after the cursor
                 let mut g = sh.lock().unwrap();
                 let s = g.done.next_free(g.cursor);
-                match s.checked_add(chunk) { Some(e) => g.cursor = e, None => return }
-                s
+                if s == NONCE_END { return; } // nonce space exhausted
+                let e = s.saturating_add(chunk); // saturates at NONCE_END: the last chunk may be short
+                g.cursor = e;
+                (s, e)
             };
-            match mine_range(&sp, s, chunk, &STOP, be) {
+            match mine_range(&sp, s, e - s, &STOP) {
                 ChunkResult::Done => {
-                    hashed.fetch_add(chunk, Ordering::Relaxed);
+                    hashed.fetch_add(e - s, Ordering::Relaxed);
                     let mut g = sh.lock().unwrap();
-                    g.done.insert(s, s + chunk);
-                    g.pending.push((s, s + chunk));
+                    g.done.insert(s, e);
+                    g.pending.push((s, e));
                 }
                 ChunkResult::Found(n) => { // a chunk holding a hit is never recorded complete
                     *found.lock().unwrap() = Some(n);
@@ -105,7 +104,7 @@ fn main() {
             eprintln!("PROGRESS session_hashed={h} total_completed={} MH/s={:.2}", store.done.total(), h as f64 / t0.elapsed().as_secs_f64() / 1e6);
             last_pr = Instant::now();
         }
-        if STOP.load(Ordering::Relaxed) && hs.iter().all(|h| h.is_finished()) { break; }
+        if hs.iter().all(|h| h.is_finished()) { break; } // stopped, found, or nonce space exhausted
     }
     for h in hs { h.join().unwrap(); }
     drain(&mut store, &sh);
@@ -123,6 +122,7 @@ fn main() {
             eprintln!("FOUND");
             println!("{txt}"); // stdout carries only the proof, so it pipes into --verify
         }
+        None if store.done.next_free(c.start_nonce) == NONCE_END => { eprintln!("EXHAUSTED total_completed={} (no match in [{}, 2^64-1))", store.done.total(), c.start_nonce); std::process::exit(3) }
         None => eprintln!("STOPPED total_completed={} rate_MH/s={:.2}", store.done.total(), hashed.load(Ordering::Relaxed) as f64 / t0.elapsed().as_secs_f64() / 1e6),
     }
 }

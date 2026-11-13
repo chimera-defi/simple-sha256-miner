@@ -1,0 +1,86 @@
+diff -ru a/src/avx2.rs b/src/avx2.rs
+--- a/src/avx2.rs	2026-11-14 00:26:22.160361383 +0100
++++ b/src/avx2.rs	2026-11-14 00:26:22.178361514 +0100
+@@ -179,3 +179,9 @@
+         }
+     }
+ }
++
++/// First-digest-word variant for one-block messages (see `hash_short_heads`).
++#[target_feature(enable = "avx2")]
++pub(crate) unsafe fn heads(prefix: &[u8], bodies: &[&[u8]], out: &mut [u32]) {
++    crate::batch::heads_lanes::<Avx2, { <Avx2 as Lanes>::N }>(prefix, bodies, out)
++}
+diff -ru a/src/batch.rs b/src/batch.rs
+--- a/src/batch.rs	2026-11-14 00:26:22.160361383 +0100
++++ b/src/batch.rs	2026-11-14 00:26:22.178361514 +0100
+@@ -465,3 +465,32 @@
+         group(&staging[..chunk.len()], o);
+     }
+ }
++
++/// One-block messages (`prefix || body`, at most 55 bytes): stages one block per lane and
++/// writes only digest word 0 per message, skipping the byte-wise digest output.
++#[inline(always)]
++pub(crate) fn heads_lanes<L: Lanes, const W: usize>(prefix: &[u8], bodies: &[&[u8]], out: &mut [u32]) {
++    const { assert!(L::N == W) };
++    let n = bodies.len();
++    assert!(n <= L::N && out.len() == n);
++    let mut blocks = [[0u8; BLOCK]; W];
++    let mut srcs: [*const u8; W] = [std::ptr::null(); W];
++    let p = prefix.len();
++    for (i, body) in bodies.iter().enumerate() {
++        let l = p + body.len();
++        assert!(l <= 55);
++        let blk = &mut blocks[i];
++        blk[..p].copy_from_slice(prefix);
++        blk[p..l].copy_from_slice(body);
++        blk[l] = 0x80;
++        blk[56..].copy_from_slice(&((l as u64) * 8).to_be_bytes());
++        srcs[i] = blk.as_ptr();
++    }
++    // SAFETY: the first n lanes point at full 64-byte blocks.
++    let w = unsafe { L::transpose(&srcs, n) };
++    let mut state = H0.map(L::splat);
++    compress::<L>(&mut state, w);
++    let mut tmp = [0u32; W];
++    state[0].store(&mut tmp[..L::N]);
++    out.copy_from_slice(&tmp[..n]);
++}
+diff -ru a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs	2026-11-14 00:26:22.160361383 +0100
++++ b/src/lib.rs	2026-11-14 00:26:22.178361514 +0100
+@@ -1029,3 +1029,33 @@
+         out
+     }
+ }
++
++/// First 32 bits of `SHA-256(prefix || body)` (big-endian) for each body.
++///
++/// Fast path: AVX2 without AVX-512, every `prefix || body` at most 55 bytes (one block).
++/// Everything else goes through [`hash_many_prefixed`], so results are always identical.
++///
++/// # Panics
++///
++/// Panics if `bodies.len() != out.len()`.
++pub fn hash_short_heads(prefix: &[u8], bodies: &[&[u8]], out: &mut [u32]) {
++    assert_eq!(bodies.len(), out.len());
++    #[cfg(all(target_arch = "x86_64", not(feature = "scalar")))]
++    if is_x86_feature_detected!("avx2")
++        && !is_x86_feature_detected!("avx512f")
++        && bodies.iter().all(|b| prefix.len() + b.len() <= 55)
++    {
++        for (b, o) in bodies.chunks(8).zip(out.chunks_mut(8)) {
++            // SAFETY: AVX2 detected above.
++            unsafe { avx2::heads(prefix, b, o) }
++        }
++        return;
++    }
++    let mut full = [[0u8; 32]; 128];
++    for (b, o) in bodies.chunks(128).zip(out.chunks_mut(128)) {
++        hash_many_prefixed(prefix, b, &mut full[..b.len()]);
++        for (d, w) in full.iter().zip(o.iter_mut()) {
++            *w = u32::from_be_bytes([d[0], d[1], d[2], d[3]]);
++        }
++    }
++}

@@ -347,8 +347,6 @@ dependencies = [
 [[package]]
 name = "tape-sha256"
 version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ee7cad9f095bb294123a8bb3ac457d61b880b528d8692fdbae2daec14e292af"
 
 [[package]]
 name = "typenum"

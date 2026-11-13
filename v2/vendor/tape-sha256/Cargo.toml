@@ -1,0 +1,19 @@
+# Minimal manifest for the vendored, patched tape-sha256 0.2.2 (Apache-2.0).
+# Upstream: https://github.com/spool-labs/tape-sha256. Changes: see PATCH.diff.
+[package]
+name = "tape-sha256"
+version = "0.2.2"
+edition = "2021"
+rust-version = "1.89"
+license = "Apache-2.0"
+build = "build.rs"
+
+[features]
+avx2 = []
+avx512 = []
+default = []
+neon = []
+scalar = []
+
+[lib]
+path = "src/lib.rs"
