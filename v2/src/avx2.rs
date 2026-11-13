@@ -1,4 +1,4 @@
-//! Opt-in 8-lane AVX2 SHA-256 for single-block messages. All `unsafe` in the crate lives here.
+//! Opt-in 8-lane AVX2 SHA-256 for single-block messages. All SIMD `unsafe` lives here.
 use std::arch::x86_64::*;
 
 const K: [u32; 64] = [

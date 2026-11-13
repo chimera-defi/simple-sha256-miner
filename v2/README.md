@@ -70,7 +70,7 @@ The repo itself has no license file yet.
 - `lib`: `tape-sha256`, with a running decimal counter and reused buffers. It
   picks AVX2 or AVX-512 by itself and works on any CPU.
 - `avx2`: the hand-written 8-lane AVX2 kernel from `0002a38`, in `src/avx2.rs`
-  (the only `unsafe` in the crate). x86-64 with AVX2 only, sha256 only, and the
+  (all SIMD `unsafe` is in this one file). x86-64 with AVX2 only, sha256 only, and the
   input must be short (`len(input) + 21 < 56`). Anything else exits with an
   error. It never falls back silently.
 
