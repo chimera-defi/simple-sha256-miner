@@ -16,7 +16,7 @@ fn fnv(s: &str) -> u64 {
 }
 
 /// Merged set of half-open [start,end) nonce intervals.
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Default, Clone)]
 pub struct Intervals(pub BTreeMap<u64, u64>);
 
 impl Intervals {
@@ -54,23 +54,21 @@ pub struct Store {
 }
 
 impl Store {
-    fn ckpt(dir: &Path) -> PathBuf { dir.join("checkpoint.txt") }
-    fn jpath(dir: &Path) -> PathBuf { dir.join("journal.log") }
-
     pub fn open(dir: &Path, prefix: &str, chunk: u64) -> io::Result<Store> {
         fs::create_dir_all(dir)?;
         let mut done = Intervals::default();
-        if let Ok(txt) = fs::read_to_string(Self::ckpt(dir)) {
+        if let Ok(txt) = fs::read_to_string(dir.join("checkpoint.txt")) {
             done = parse_checkpoint(&txt, prefix, chunk)?;
         }
-        if let Ok(txt) = fs::read_to_string(Self::jpath(dir)) {
+        if let Ok(txt) = fs::read_to_string(dir.join("journal.log")) {
             for line in txt.lines() {
                 if let Some((s, e)) = parse_journal_line(line) {
                     done.insert(s, e); // torn/corrupt lines are skipped
                 }
             }
         }
-        let journal = OpenOptions::new().create(true).append(true).open(Self::jpath(dir))?;
+        let journal = OpenOptions::new().create(true).append(true).open(dir.join("journal.log"))?;
+        File::open(dir)?.sync_all()?; // make the journal's directory entry durable
         Ok(Store { dir: dir.to_path_buf(), prefix: prefix.into(), chunk, done, journal })
     }
 
@@ -97,7 +95,7 @@ impl Store {
         let mut f = File::create(&tmp)?;
         f.write_all(body.as_bytes())?;
         f.sync_all()?;
-        fs::rename(&tmp, Self::ckpt(&self.dir))?;
+        fs::rename(&tmp, self.dir.join("checkpoint.txt"))?;
         File::open(&self.dir)?.sync_all()?;
         self.journal.set_len(0)?;
         self.journal.sync_all()

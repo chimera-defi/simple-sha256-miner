@@ -50,19 +50,8 @@ pub fn sha256_short(msg: &[u8]) -> [u8; 32] {
 }
 
 #[inline(always)]
-unsafe fn rotr(x: __m256i, n: i32) -> __m256i {
-    match n {
-        2 => _mm256_or_si256(_mm256_srli_epi32(x, 2), _mm256_slli_epi32(x, 30)),
-        6 => _mm256_or_si256(_mm256_srli_epi32(x, 6), _mm256_slli_epi32(x, 26)),
-        7 => _mm256_or_si256(_mm256_srli_epi32(x, 7), _mm256_slli_epi32(x, 25)),
-        11 => _mm256_or_si256(_mm256_srli_epi32(x, 11), _mm256_slli_epi32(x, 21)),
-        13 => _mm256_or_si256(_mm256_srli_epi32(x, 13), _mm256_slli_epi32(x, 19)),
-        17 => _mm256_or_si256(_mm256_srli_epi32(x, 17), _mm256_slli_epi32(x, 15)),
-        18 => _mm256_or_si256(_mm256_srli_epi32(x, 18), _mm256_slli_epi32(x, 14)),
-        19 => _mm256_or_si256(_mm256_srli_epi32(x, 19), _mm256_slli_epi32(x, 13)),
-        22 => _mm256_or_si256(_mm256_srli_epi32(x, 22), _mm256_slli_epi32(x, 10)),
-        _ => _mm256_or_si256(_mm256_srli_epi32(x, 25), _mm256_slli_epi32(x, 7)),
-    }
+unsafe fn rotr<const N: i32, const M: i32>(x: __m256i) -> __m256i {
+    _mm256_or_si256(_mm256_srli_epi32::<N>(x), _mm256_slli_epi32::<M>(x))
 }
 
 /// 8 single-block hashes in parallel. `w[i][lane]` = big-endian message word i.
@@ -76,8 +65,8 @@ pub unsafe fn sha256_x8_h01(w_in: &[[u32; 8]; 16]) -> ([u32; 8], [u32; 8]) {
     for i in 16..64 {
         let a = w[i - 15];
         let b = w[i - 2];
-        let s0 = _mm256_xor_si256(_mm256_xor_si256(rotr(a, 7), rotr(a, 18)), _mm256_srli_epi32(a, 3));
-        let s1 = _mm256_xor_si256(_mm256_xor_si256(rotr(b, 17), rotr(b, 19)), _mm256_srli_epi32(b, 10));
+        let s0 = _mm256_xor_si256(_mm256_xor_si256(rotr::<7, 25>(a), rotr::<18, 14>(a)), _mm256_srli_epi32(a, 3));
+        let s1 = _mm256_xor_si256(_mm256_xor_si256(rotr::<17, 15>(b), rotr::<19, 13>(b)), _mm256_srli_epi32(b, 10));
         w[i] = _mm256_add_epi32(_mm256_add_epi32(w[i - 16], s0), _mm256_add_epi32(w[i - 7], s1));
     }
     let mut v = [_mm256_setzero_si256(); 8];
@@ -86,13 +75,13 @@ pub unsafe fn sha256_x8_h01(w_in: &[[u32; 8]; 16]) -> ([u32; 8], [u32; 8]) {
     }
     for i in 0..64 {
         let (a, b, c, d, e, f, g, h) = (v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
-        let s1 = _mm256_xor_si256(_mm256_xor_si256(rotr(e, 6), rotr(e, 11)), rotr(e, 25));
+        let s1 = _mm256_xor_si256(_mm256_xor_si256(rotr::<6, 26>(e), rotr::<11, 21>(e)), rotr::<25, 7>(e));
         let ch = _mm256_xor_si256(_mm256_and_si256(e, f), _mm256_andnot_si256(e, g));
         let t1 = _mm256_add_epi32(
             _mm256_add_epi32(h, s1),
             _mm256_add_epi32(_mm256_add_epi32(ch, _mm256_set1_epi32(K[i] as i32)), w[i]),
         );
-        let s0 = _mm256_xor_si256(_mm256_xor_si256(rotr(a, 2), rotr(a, 13)), rotr(a, 22));
+        let s0 = _mm256_xor_si256(_mm256_xor_si256(rotr::<2, 30>(a), rotr::<13, 19>(a)), rotr::<22, 10>(a));
         let maj = _mm256_xor_si256(_mm256_xor_si256(_mm256_and_si256(a, b), _mm256_and_si256(a, c)), _mm256_and_si256(b, c));
         let t2 = _mm256_add_epi32(s0, maj);
         v[7] = g;

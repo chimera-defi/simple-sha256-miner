@@ -32,13 +32,14 @@ fn main() {
             _ => die(&format!("unknown flag {k}")),
         }
     }
-    if target_bits(&prefix).is_none() { die("prefix must be 1-10 Base64 chars"); }
+    if threads == 0 || target_bits(&prefix).is_none() { die("need threads >= 1 and a 1-10 char Base64 prefix"); }
     if chunk % 8 != 0 || start % chunk != 0 { die("chunk must be a multiple of 8 and start-nonce a multiple of chunk"); }
     std::fs::create_dir_all(&dir).unwrap();
     // single-instance lock on the state dir
     let lock = std::fs::File::create(dir.join("lock")).unwrap();
     if lock.try_lock().is_err() { die("state dir locked by another miner"); }
     if let Ok(t) = std::fs::read_to_string(dir.join("FOUND.txt")) {
+        if !t.contains(&format!("prefix={prefix}\n")) { die("FOUND.txt in this state dir is for a different prefix"); }
         println!("already found:\n{t}");
         return;
     }
@@ -80,11 +81,7 @@ fn main() {
     loop {
         std::thread::sleep(Duration::from_millis(500));
         if t0.elapsed().as_secs() >= max_secs { STOP.store(true, Ordering::SeqCst); }
-        let p = std::mem::take(&mut sh.lock().unwrap().pending);
-        if !p.is_empty() {
-            store.done = sh.lock().unwrap().done.clone();
-            store.append(&p).unwrap_or_else(|e| die(&format!("journal: {e}")));
-        }
+        drain(&mut store, &sh);
         if last_ck.elapsed().as_secs() >= 30 || STOP.load(Ordering::Relaxed) {
             store.checkpoint().unwrap_or_else(|e| die(&format!("checkpoint: {e}")));
             last_ck = Instant::now();
@@ -97,10 +94,7 @@ fn main() {
         if STOP.load(Ordering::Relaxed) && hs.iter().all(|h| h.is_finished()) { break; }
     }
     for h in hs { h.join().unwrap(); }
-    // final flush of anything completed between last drain and exit
-    let (p, d) = { let mut g = sh.lock().unwrap(); (std::mem::take(&mut g.pending), g.done.clone()) };
-    store.done = d;
-    if !p.is_empty() { store.append(&p).unwrap(); }
+    drain(&mut store, &sh);
     store.checkpoint().unwrap();
     let fnd = *found.lock().unwrap();
     if let Some(n) = fnd {
@@ -116,6 +110,13 @@ fn main() {
     } else {
         println!("STOPPED total_completed={}", store.done.total());
     }
+}
+
+/// Journal everything completed since the last call (idempotent; safe to call often).
+fn drain(store: &mut Store, sh: &Mutex<Shared>) {
+    let (p, d) = { let mut g = sh.lock().unwrap(); (std::mem::take(&mut g.pending), g.done.clone()) };
+    store.done = d;
+    if !p.is_empty() { store.append(&p).unwrap_or_else(|e| die(&format!("journal: {e}"))); }
 }
 
 fn die(m: &str) -> ! { eprintln!("error: {m}"); std::process::exit(2) }

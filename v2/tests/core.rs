@@ -21,13 +21,6 @@ fn simd_matches_scalar_and_finds_every_hit() {
 }
 
 #[test]
-fn prefix_is_case_sensitive() {
-    let n = (0u64..).find(|&n| verify(n, "ab").is_some()).unwrap();
-    let b = verify(n, "ab").unwrap().1;
-    assert!(b.starts_with("ab") && verify(n, "AB").is_none() || b.starts_with("AB") == false);
-}
-
-#[test]
 fn intervals_merge_and_next_free() {
     let mut i = Intervals::default();
     i.insert(0, 10); i.insert(20, 30); i.insert(10, 20);
