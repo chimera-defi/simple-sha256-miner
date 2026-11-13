@@ -37,9 +37,6 @@ larger. No promise of when a match appears.
 ## Who did what
 
 1. **Chimera (operator):** set the goal, approved the work, owns the repo.
-2. **Claude:** engineered v2 (search, journal and checkpoint, tests, validator).
+2. **Claude (Wren):** engineering, tests, and documentation (v2 search, journal and checkpoint, validator).
 3. **ChatGPT:** coordination, benchmark runs and early docs.
 4. **Codex:** no verified contribution, so none is claimed.
-
-Docs are written in the Wren plain-words style. Wren is a writing persona that
-Claude runs. It is not an author or account.

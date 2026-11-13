@@ -69,8 +69,9 @@ The repo itself has no license file yet.
 
 - `lib`: `tape-sha256`, with a running decimal counter and reused buffers. It
   picks AVX2 or AVX-512 by itself and works on any CPU.
-- `avx2`: the hand-written 8-lane AVX2 kernel from `0002a38`, in `src/avx2.rs`
-  (all SIMD `unsafe` is in this one file). x86-64 with AVX2 only, sha256 only, and the
+- `avx2`: the hand-written 8-lane AVX2 kernel in `src/avx2.rs`
+  (all SIMD `unsafe` is in this one file; `main.rs` has one more `unsafe` for signal
+  setup). x86-64 with AVX2 only, sha256 only, and the
   input must be short (`len(input) + 21 < 56`). Anything else exits with an
   error. It never falls back silently.
 
@@ -107,3 +108,15 @@ the table. BLAKE3 is unbenchmarked and is not lane-batched.
 
 Prefix is 1-10 base64 or 1-16 hex characters, matched at the start of the
 encoded digest. Output is the 32-byte digest only.
+
+## Pending work
+
+1. **Nonce space end.** Near `u64::MAX` the workers exit when the next chunk would
+   overflow, but the main loop only stops on a stop signal, so it idles until
+   `--max-secs`. The last partial chunk below `u64::MAX` is never mined. Not
+   reachable in practice (2^64 nonces); the fix is to stop when all workers have
+   finished.
+2. **Faster short-message path.** A scratch patch to `tape-sha256` that hashes
+   only the first digest word of single-block messages measured about 100 MH/s on
+   the test machine. It is not in this repo and not approved. No upstream pull
+   request has been opened.
