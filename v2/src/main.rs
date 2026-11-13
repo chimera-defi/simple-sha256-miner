@@ -43,11 +43,17 @@ fn main() {
     std::fs::create_dir_all(&dir).unwrap();
     let lock = std::fs::File::create(dir.join("lock")).unwrap(); // one miner per state dir
     if lock.try_lock().is_err() { die("state dir locked by another miner"); }
-    if let Ok(t) = std::fs::read_to_string(dir.join("FOUND.json")) {
-        let p: serde_json::Value = serde_json::from_str(&t).unwrap_or_else(|e| die(&format!("FOUND.json: {e}")));
-        if p["prefix"] != sp.prefix || p["input"] != sp.input { die("FOUND.json in this state dir is for a different search"); }
-        println!("{t}");
-        return;
+    match std::fs::read_to_string(dir.join("FOUND.json")) {
+        Ok(t) => { // only ever return a proof that re-verifies AND belongs to this search
+            let p: serde_json::Value = serde_json::from_str(&t).unwrap_or_else(|e| die(&format!("FOUND.json: {e}")));
+            let ours = p["algorithm"] == name(&sp.algo) && p["encoding"] == name(&sp.enc) && p["input"] == sp.input && p["prefix"] == sp.prefix;
+            if let Err(e) = verify(&p) { die(&format!("FOUND.json failed verification: {e}")); }
+            if !ours { die("FOUND.json is for a different search"); }
+            println!("{t}");
+            return;
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => die(&format!("FOUND.json: {e}")),
     }
     unsafe { signal(2, on_sig); signal(15, on_sig); }
     let mut store = Store::open(&dir, &sp.key(), chunk).unwrap_or_else(|e| die(&format!("state: {e}")));

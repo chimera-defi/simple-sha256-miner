@@ -62,3 +62,42 @@ fn intervals_merge() {
     i.insert(0, 10); i.insert(20, 30); i.insert(10, 20);
     assert_eq!((i.0.len(), i.next_free(5), i.total()), (1, 30, 30));
 }
+
+#[test]
+fn unreadable_checkpoint_or_journal_fails_closed() {
+    let d = std::env::temp_dir().join(format!("vm-ck-{}", std::process::id()));
+    for file in ["checkpoint.txt", "journal.log"] {
+        for bad_bytes in [false, true] {
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).unwrap();
+            // a directory in place of the file = read error; 0xff bytes = invalid UTF-8
+            if bad_bytes { std::fs::write(d.join(file), [0xffu8, 0xfe]).unwrap() } else { std::fs::create_dir(d.join(file)).unwrap() }
+            assert!(Store::open(&d, "k", 8).is_err(), "{file} bad_bytes={bad_bytes} was treated as empty");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn found_json_is_reverified_before_it_is_returned() {
+    let sp = spec(Algo::Sha256, Enc::Base64, "mOfz");
+    let good = sp.proof(0, &sp.matches(0).unwrap());
+    let run = |p: &serde_json::Value, prefix: &str| {
+        let d = std::env::temp_dir().join(format!("vm-found-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("FOUND.json"), p.to_string()).unwrap();
+        let o = std::process::Command::new(env!("CARGO_BIN_EXE_vanity-miner"))
+            .args(["--prefix", prefix, "--state"]).arg(&d).output().unwrap();
+        let _ = std::fs::remove_dir_all(&d);
+        o.status.success()
+    };
+    assert!(run(&good, "mOfz"), "valid proof for this search must be returned");
+    assert!(!run(&good, "mOfy"), "proof for another search must be refused");
+    let mut t = good.clone();
+    t["digest"] = "mOfzAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".into();
+    assert!(!run(&t, "mOfz"), "tampered digest must be refused");
+    let mut t = good.clone();
+    t["message"] = "gensys:1".into();
+    assert!(!run(&t, "mOfz"), "inconsistent message must be refused");
+}

@@ -59,12 +59,12 @@ impl Store {
         let bad = |m: &str| io::Error::new(io::ErrorKind::InvalidData, m.to_string());
         let header = format!("H {key} {chunk}");
         let mut done = Intervals::default();
-        let ck = fs::read_to_string(dir.join("checkpoint.txt")).ok();
+        let ck = read_optional(&dir.join("checkpoint.txt"))?;
         if let Some(txt) = &ck {
             done = parse_checkpoint(txt, key, chunk)?; // binds settings + chunk
         }
         let mut hdr_ok = false;
-        if let Ok(txt) = fs::read_to_string(dir.join("journal.log")) {
+        if let Some(txt) = read_optional(&dir.join("journal.log"))? {
             let mut lines = txt.lines().peekable();
             if let Some(h) = lines.next_if(|l| l.starts_with("H ")) {
                 if h != header { return Err(bad("journal is for a different settings or chunk size")); }
@@ -112,6 +112,15 @@ impl Store {
         self.journal.set_len(0)?;
         writeln!(self.journal, "H {} {}", self.key, self.chunk)?;
         self.journal.sync_all()
+    }
+}
+
+/// Missing file is fine (fresh state); any other read error must stop the miner.
+fn read_optional(p: &Path) -> io::Result<Option<String>> {
+    match fs::read_to_string(p) {
+        Ok(t) => Ok(Some(t)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io::Error::new(e.kind(), format!("{}: {e}", p.display()))),
     }
 }
 

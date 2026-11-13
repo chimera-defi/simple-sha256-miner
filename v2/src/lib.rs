@@ -65,6 +65,7 @@ pub fn verify(p: &Value) -> Result<String, String> {
         .ok_or("missing or invalid 'nonce'")?;
     let sp = Spec { algo: parse(&s("algorithm")?)?, enc: parse(&s("encoding")?)?, input: s("input")?, prefix: s("prefix")? };
     sp.target()?;
+    if let Some(m) = p["message"].as_str() { if m != format!("{}:{nonce}", sp.input) { return Err("message mismatch".into()); } }
     let d = sp.digest(nonce);
     let (enc, claimed) = (sp.encode(&d), s("digest")?);
     if enc != claimed { return Err(format!("digest mismatch: recomputed {enc}")); }
