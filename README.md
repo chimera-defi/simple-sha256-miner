@@ -29,7 +29,7 @@ Options: `--input TEXT` (hashed as `TEXT:<nonce>`), `--algorithm sha256|blake3`,
 Each extra prefix character makes the expected work 64× (base64) or 16× (hex)
 larger. No promise of when a match appears.
 
-Follow-ups: [docs/WORKLOG.md](docs/WORKLOG.md).
+Follow-ups: [docs/WORKLOG.md](docs/WORKLOG.md). How it got faster: [visual explainer](docs/performance-eli5.html).
 
 ## Who did what
 
