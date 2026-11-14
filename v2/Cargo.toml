@@ -8,7 +8,7 @@ rust-version = "1.89"
 doctest = false # no doctests; the LTO profile breaks rustdoc's extern lookup
 
 [dependencies]
-tape-sha256 = { path = "vendor/tape-sha256" } # Apache-2.0, patched 0.2.2 (vendor/tape-sha256/PATCH.diff)
+tape-sha256 = { git = "https://github.com/chimera-defi/sha256", rev = "391432abfe4cb7f4174978ffd7797cd96d6aed41" } # Apache-2.0; fork carrying hash_short_heads until spool-labs/sha256#4 merges
 sha2 = "0.10"         # MIT/Apache-2.0: independent SHA-256 for verification
 blake3 = "1"         # CC0/Apache-2.0: optional second algorithm
 clap = { version = "4", features = ["derive"] }

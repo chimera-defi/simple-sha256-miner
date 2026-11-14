@@ -56,21 +56,21 @@ use a new `--state` dir.
 
 | Crate | Use | License |
 | --- | --- | --- |
-| `tape-sha256` | batch SHA-256, AVX2/AVX-512 chosen at run time; vendored 0.2.2 with one added function (see below) | Apache-2.0 |
+| `tape-sha256` | batch SHA-256, AVX2/AVX-512 chosen at run time; our fork with one added function (see below) | Apache-2.0 |
 | `sha2` | reference SHA-256 for hits and `--verify` | MIT/Apache-2.0 |
 | `blake3` | optional BLAKE3 | CC0/Apache-2.0 |
 | `clap`, `base64`, `hex`, `serde_json` | CLI, encodings, proofs | MIT/Apache-2.0 |
 
-The repo's own v2 code is MIT (root [`LICENSE`](../LICENSE)). The vendored
-`vendor/tape-sha256` carries its own Apache-2.0 `LICENSE`, which covers only that crate.
+The repo's own v2 code is MIT (root [`LICENSE`](../LICENSE)). `tape-sha256`
+is Apache-2.0 and keeps its own licence; it covers only that crate.
 
 ## Speed
 
-`tape-sha256` is vendored in `vendor/tape-sha256` (0.2.2, Apache-2.0) with one added
-function, `hash_short_heads`: the first 32 bits of `SHA-256(prefix || body)` for
+`tape-sha256` comes from our fork chimera-defi/sha256 at 391432a, which adds
+`hash_short_heads` (upstream PR spool-labs/sha256#4). Switch back to crates.io once it is
+merged and released. `hash_short_heads` returns the first 32 bits of `SHA-256(prefix || body)` for
 messages that fit one block. The miner needs only those bits to test a prefix, so
-this skips the byte-wise digest output. The patch is in `vendor/tape-sha256/PATCH.diff`.
-It takes the fast path on AVX2 CPUs without AVX-512 (that is the CPU measured here)
+this skips the byte-wise digest output. It takes the fast path on AVX2 CPUs without AVX-512 (that is the CPU measured here)
 and falls back to the stock `hash_many_prefixed` for everything else, so results are
 always the same. `unsafe` code lives in three places: the patch (AVX2 intrinsics), the
 opt-in custom kernel `src/avx2.rs`, and the signal setup in `main.rs`. Every hit is
@@ -138,7 +138,7 @@ pilot.
 ### Stock tape vs patched tape pilot (2026-11-14)
 
 A second bounded pilot, separate from the lib-vs-avx2 one above. Two binaries built from the
-same tree (HEAD `85096a8`, same `Cargo.lock`, same vendored tape); only the call at
+same tree (HEAD `85096a8`, same `Cargo.lock`, same patched tape); only the call at
 `src/lib.rs:141` differs: `hash_short_heads` (patched) or `hash_many_prefixed` plus
 `from_be_bytes` (stock, the `b18e923` callsite). Pinned to cores 0-5, 6 threads, 4 s warmup per
 arm, then 3 pairs of 10 s, order stock/patched, patched/stock, stock/patched. MH/s:
