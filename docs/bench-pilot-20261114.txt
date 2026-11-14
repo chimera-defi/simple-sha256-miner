@@ -1,0 +1,9 @@
+pilot start 2026-11-14T01:01:48+01:00 uptime:  01:01:48 up 22 days,  1:31,  5 users,  load average: 4.41, 3.48, 4.05
+warmup lib 5s: 111.70 MH/s (load=4.78 cpu0-5_MHz=4319 pkg_temp_C=73)
+pair1 pos1 lib 108.61 MH/s | before: load=4.78 cpu0-5_MHz=4344 pkg_temp_C=72 | after: load=6.01 cpu0-5_MHz=4300 pkg_temp_C=79
+pair1 pos2 avx2 76.94 MH/s | before: load=6.01 cpu0-5_MHz=4300 pkg_temp_C=79 | after: load=11.06 cpu0-5_MHz=4300 pkg_temp_C=71
+pair2 pos1 avx2 87.88 MH/s | before: load=11.06 cpu0-5_MHz=4298 pkg_temp_C=70 | after: load=10.74 cpu0-5_MHz=2571 pkg_temp_C=70
+pair2 pos2 lib 104.57 MH/s | before: load=10.74 cpu0-5_MHz=2571 pkg_temp_C=70 | after: load=9.99 cpu0-5_MHz=4300 pkg_temp_C=75
+pair3 pos1 lib 99.51 MH/s | before: load=9.99 cpu0-5_MHz=4300 pkg_temp_C=70 | after: load=9.83 cpu0-5_MHz=2548 pkg_temp_C=70
+pair3 pos2 avx2 80.16 MH/s | before: load=9.83 cpu0-5_MHz=2548 pkg_temp_C=70 | after: load=9.62 cpu0-5_MHz=4258 pkg_temp_C=81
+pilot end 2026-11-14T01:02:56+01:00

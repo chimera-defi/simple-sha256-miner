@@ -61,8 +61,8 @@ use a new `--state` dir.
 | `blake3` | optional BLAKE3 | CC0/Apache-2.0 |
 | `clap`, `base64`, `hex`, `serde_json` | CLI, encodings, proofs | MIT/Apache-2.0 |
 
-The repo itself has no root license file, so none is granted for its own code. The
-vendored `vendor/tape-sha256` carries its own Apache-2.0 `LICENSE`, which covers only that crate.
+The repo's own v2 code is MIT (root [`LICENSE`](../LICENSE)). The vendored
+`vendor/tape-sha256` carries its own Apache-2.0 `LICENSE`, which covers only that crate.
 
 ## Speed
 
@@ -112,8 +112,28 @@ unreachable 10-char prefix, alternating between builds, fresh state dir each, ot
 | patched lib (`hash_short_heads`) | 11 | 108.8, 109.7, 107.9 | 109 |
 
 The 6-thread 105.2 and the 11-thread 109.7 are single-run peaks, not typical results:
-the 6-thread mean was 97 and no 6-thread run reached 110. All numbers are from one
+the 6-thread mean was 97 and no unpinned 6-thread run reached 110. All numbers are from one
 i7-8700 under load and do not transfer to other CPUs.
+
+### Pilot, pinned to physical cores (2026-11-14)
+
+A short pilot, NOT the planned 10 x 30 s protocol: one binary, `taskset -c 0-5` (one thread
+per physical core), 6 threads, unreachable 10-char prefix, fresh state per run, a 5 s
+warmup, then 3 pairs of 10 s runs with randomized order (seed 1114). MH/s:
+
+| Pair | lib | avx2 | Order |
+| --- | ---: | ---: | --- |
+| 1 | 108.61 | 76.94 | lib, avx2 |
+| 2 | 104.57 | 87.88 | avx2, lib |
+| 3 | 99.51 | 80.16 | lib, avx2 |
+
+lib was faster in 3 of 3 pairs (medians 104.6 vs 80.2). The lib warmup run read 111.70.
+Caveats: n = 3; the host was shared (1-min load 4.4 to 11, which includes the miner's own
+6 threads); the CPU clock and package temperature (70-81 C) were sampled only before and
+after each run, and some clock samples read about 2.5 GHz, so they are rough. Raw lines:
+[`docs/bench-pilot-20261114.txt`](../docs/bench-pilot-20261114.txt). Pinning looks
+helpful (higher than the unpinned 6-thread runs above) but that is not isolated by this
+pilot.
 
 Tried and not kept (no gain beyond the noise, 4 alternating runs each, 6 threads):
 batch size 64 (92) and 256 (96) against 128 (95); `--chunk` 2^16 (92) and 2^20 (94)

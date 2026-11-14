@@ -17,22 +17,27 @@ Millions of hashes per second (MH/s), 6 threads unless noted:
 | Latest paired medians (3 runs, 8 s each, load 5.4-9.7) | n/a | 70.0 | **87.6** |
 
 Observed single-run peaks for the patched lib: **105.2** MH/s at 6 threads and **109.7**
-MH/s at 11 threads. These are not sustained results, and no 6-thread run reached 110.
+MH/s at 11 threads, each one run. These are not sustained results. No unpinned 6-thread
+run reached 110; a short pilot pinned to the six physical cores did (see below).
+
+**Pilot, pinned to the 6 physical cores** (3 randomized lib/avx2 pairs, 10 s each, one
+binary, not the planned full protocol): lib 108.6, 104.6, 99.5 vs avx2 76.9, 87.9, 80.2
+MH/s; lib was faster in all 3 pairs (medians 104.6 vs 80.2). One pinned 5 s warmup run
+of lib read 111.7. The host was shared and busy. Raw data: [docs/bench-pilot-20261114.txt](docs/bench-pilot-20261114.txt).
 
 Conditions: one shared 12-thread i7-8700 under other jobs, unreachable 10-char prefix,
 fresh state per run. There is no controlled idle-host benchmark yet, and the numbers do
-not transfer to other CPUs. Details: [Detailed benchmarks](v2/README.md#speed).
-Plain-words picture: [ELI5 performance explainer](docs/performance-eli5.html).
+not transfer to other CPUs. Links: [Detailed benchmarks](v2/README.md#speed),
+[ELI5 performance explainer](docs/performance-eli5.html).
 
 | | Language | Speed (6 threads) | Resume |
 | --- | --- | ---: | --- |
 | `v0/` | Python, single thread | not measured | none |
 | `v1/` | C++, OpenSSL | ~2.66 M hashes/s | none |
-| `v2/` | Rust, library crates | see [v2](v2/README.md#speed) | yes, by completed range |
+| `v2/` | Rust, library crates | ~87-105 (snapshot above) | yes, by completed range |
 
-Speeds come from one CPU's run logs, reported by ChatGPT and not re-run by
-Claude. Treat them as one data point, not a portable benchmark. Details and a
-second cross-check are in [`v2/README.md`](v2/README.md#speed).
+The v1 figure comes from one CPU's run logs, reported by ChatGPT and not re-run by
+Claude. Treat it as one data point, not a portable benchmark.
 
 ## Quick start
 
@@ -48,17 +53,23 @@ Each extra prefix character makes the expected work 64× (base64) or 16× (hex)
 larger. No promise of when a match appears.
 
 **Recommended: the default `--backend lib`** (patched `tape-sha256`). It was the fastest
-backend we measured, on one host with a noisy load; see [v2 speed](v2/README.md#speed).
+backend we measured, on one host with a noisy load.
 The hand-written `--backend avx2` stays as an opt-in.
 
 ## License
 
-This repo has **no root license file**, so no licence or permission is granted for its
-own code. The vendored `v2/vendor/tape-sha256` keeps its own Apache-2.0 licence
-(`v2/vendor/tape-sha256/LICENSE`), which covers only that crate. The other crates are
-used as dependencies under their own licences.
+The repo's own code and docs (`v2/src`, `v2/tests`, `v2/validate.py`, `docs/`, the READMEs)
+are under the [MIT License](LICENSE), copyright Chimera (the repo owner and git author).
 
-Follow-ups: [docs/WORKLOG.md](docs/WORKLOG.md). How it got faster: [visual explainer](docs/performance-eli5.html).
+Not covered by it:
+
+- `v2/vendor/tape-sha256`: keeps its own Apache-2.0 licence (`v2/vendor/tape-sha256/LICENSE`).
+  It is not relicensed.
+- `v0/miner.py` and `v1/miner.cpp`: their authorship is not verified (v0 was supplied by
+  the operator, v1 is the original host source), so no licence is claimed for them yet.
+- Other crates are dependencies under their own licences.
+
+Follow-ups: [docs/WORKLOG.md](docs/WORKLOG.md).
 
 ## Who did what
 
