@@ -111,7 +111,7 @@ fn fast_first_word_path_equals_reference() {
     // short messages take the AVX2 first-word path (when available), a long input the portable one
     let mut nonces: Vec<u64> = (0..5_000).chain(99_990..100_010).chain(999_999_990..1_000_000_010).collect();
     nonces.extend((0..20).map(|i| u64::MAX - i));
-    for input in ["gensys", &"x".repeat(40)] {
+    for input in ["gensys", &"x".repeat(30), &"x".repeat(40)] {
         let sp = Spec { input: input.into(), ..spec(Algo::Sha256, Enc::Hex, "0") };
         let pre = format!("{input}:").into_bytes();
         for n in [1usize, 7, 8, 9, 128] { // partial and full lane groups

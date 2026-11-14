@@ -31,6 +31,10 @@ hash call differs; pinned to the 6 physical cores; 3 pairs of 10 s): patched 109
 host got busier during the run. This is not the lib-vs-avx2 pilot above. Archive with
 provenance and raw log: [docs/bench-stock-vs-patched-20261114.txt](docs/bench-stock-vs-patched-20261114.txt).
 
+Hill-climb experiment 1 (build the constant prefix block once per call) showed no measurable
+gain in one short pilot (median paired ratio 1.02, spread 0.95-1.13) and was reverted; see
+[docs/bench-hillclimb1-20261114.txt](docs/bench-hillclimb1-20261114.txt).
+
 Conditions: one shared 12-thread i7-8700 under other jobs, unreachable 10-char prefix,
 fresh state per run. There is no controlled idle-host benchmark yet, and the numbers do
 not transfer to other CPUs. Links: [Detailed benchmarks](v2/README.md#speed),

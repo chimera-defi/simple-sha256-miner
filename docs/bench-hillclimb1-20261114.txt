@@ -1,0 +1,86 @@
+# Hill-climb experiment 1: prefix block template in heads_lanes (INCONCLUSIVE, rolled back)
+
+Provenance
+- Baseline: private HEAD 133f1499d646756ed2fc82108187c2881cc86a47 (= origin/main, clean). v2 source files
+  identical to 85096a8; baseline binary = the 85096a8 build from /tmp/iso/patched, sha256
+  9eea54766fc21095e9ee676a9ba098083c2d7a9990037caf0947e40df47cdbf9. vendored batch.rs blob 788cd0fa77aa02f98551a710816ed45952c284e2.
+- Candidate: vendored batch.rs blob 173bae814dcd2e8701e7dbd8aa6084bf0ec34bb7, binary sha256
+  814c3989991262dbf374453bb10a33312063dec02aa1b5a49cd80e21c468a86e. Same rustc 1.99.0, release flags
+  (opt-level=3, lto, codegen-units=1, panic=abort), no RUSTFLAGS.
+- Hypothesis (plausible, NOT profiled: perf and valgrind are not installed here): in heads_lanes each lane
+  re-copies the constant prefix with a variable-length copy; building one 64-byte template and copying it
+  per lane removes that. One reversible change, 6 added / 3 removed lines (diff below).
+- Rollback: `git checkout -- v2/vendor/tape-sha256/src/batch.rs` (done; nothing from the candidate was committed).
+  The only thing kept is one extra test input (30-char input, the fast path with a longer prefix) in
+  v2/tests/core.rs, which also passes on the baseline.
+
+Correctness (candidate)
+- cargo test --release: 15 passed (includes first-word equals sha2 reference for 3 input lengths, the
+  nonce-space end test, FOUND.json reverify, state binding, resume across backends).
+- Differential: real search for prefix `gensy` found nonce 60237861, same as baseline; `--verify` and
+  validate.py accept it. A state dir written by the baseline resumed under the candidate (completed_nonces
+  213123072 carried over).
+
+Pilot (the one allowed): 6 threads, taskset -c 0-5, unreachable prefix zzzzzzzzzz, fresh state, 4 s warmup
+per arm, 3 pairs x 10 s, order base,cand / cand,base / (seed 2027) cand,base. 01:21:44 to 01:22:57 on 2026-11-14.
+MH/s: pair1 base 109.57 cand 111.87; pair2 base 97.10 cand 109.60; pair3 base 106.76 cand 100.91.
+cand/base paired ratios 1.021, 1.129, 0.945: median 1.021, mean 1.032, sample sd 0.092 (n=3).
+Arm medians: cand 109.60, base 106.76.
+Result: no measurable difference. The spread between pairs (0.945 to 1.129) is far larger than the median
+effect (+2%), so the data cannot distinguish the candidate from the baseline. No speedup is claimed.
+Host caveats: shared; 1-min load rose from 3.3 to 6.9 during the run (includes the miner's 6 threads);
+clock and temperature are single-instant samples; the base arm itself ranged 97-110.
+Decision: not retained, because the evidence does not support it. Only one candidate and one pilot were
+run; no second candidate or repeat was started.
+
+## Candidate diff (v2/vendor/tape-sha256/src/batch.rs, not committed)
+diff --git a/v2/vendor/tape-sha256/src/batch.rs b/v2/vendor/tape-sha256/src/batch.rs
+index 788cd0f..173bae8 100644
+--- a/v2/vendor/tape-sha256/src/batch.rs
++++ b/v2/vendor/tape-sha256/src/batch.rs
+@@ -473,14 +473,17 @@ pub(crate) fn heads_lanes<L: Lanes, const W: usize>(prefix: &[u8], bodies: &[&[u
+     const { assert!(L::N == W) };
+     let n = bodies.len();
+     assert!(n <= L::N && out.len() == n);
+-    let mut blocks = [[0u8; BLOCK]; W];
+-    let mut srcs: [*const u8; W] = [std::ptr::null(); W];
+     let p = prefix.len();
++    assert!(p <= 55);
++    // The prefix is the same for every lane: build it once, then copy the 64-byte template.
++    let mut tpl = [0u8; BLOCK];
++    tpl[..p].copy_from_slice(prefix);
++    let mut blocks = [tpl; W];
++    let mut srcs: [*const u8; W] = [std::ptr::null(); W];
+     for (i, body) in bodies.iter().enumerate() {
+         let l = p + body.len();
+         assert!(l <= 55);
+         let blk = &mut blocks[i];
+-        blk[..p].copy_from_slice(prefix);
+         blk[p..l].copy_from_slice(body);
+         blk[l] = 0x80;
+         blk[56..].copy_from_slice(&((l as u64) * 8).to_be_bytes());
+
+## Raw log (/tmp/cand-raw.txt, verbatim)
+start 2026-11-14T01:21:44+01:00  01:21:44 up 22 days,  1:51,  5 users,  load average: 3.32, 3.30, 3.56
+warmup base 4s: 113.76 | mid: load1=3.70 running=2 MHz0-5=3133 pkgC=64
+warmup cand 4s: 117.58 | mid: load1=4.04 running=2 MHz0-5=4301 pkgC=65
+pair1 pos1 base MH/s=109.57 | mid: load1=4.36 running=9 MHz0-5=3800 pkgC=78 | before: load1=4.04 running=2 MHz0-5=4298 pkgC=66 | after: load1=4.65 running=3 MHz0-5=3722 pkgC=70
+pair1 pos2 cand MH/s=111.87 | mid: load1=4.92 running=8 MHz0-5=3871 pkgC=78 | before: load1=4.65 running=2 MHz0-5=3713 pkgC=68 | after: load1=5.09 running=3 MHz0-5=3724 pkgC=72
+pair2 pos1 cand MH/s=109.60 | mid: load1=5.56 running=11 MHz0-5=3800 pkgC=81 | before: load1=5.09 running=2 MHz0-5=3729 pkgC=71 | after: load1=6.02 running=2 MHz0-5=3133 pkgC=68
+pair2 pos2 base MH/s=97.10 | mid: load1=6.26 running=13 MHz0-5=3800 pkgC=77 | before: load1=6.02 running=2 MHz0-5=3716 pkgC=68 | after: load1=6.48 running=3 MHz0-5=3731 pkgC=75
+pair3 pos1 cand MH/s=100.91 | mid: load1=6.68 running=10 MHz0-5=3800 pkgC=80 | before: load1=6.48 running=3 MHz0-5=4318 pkgC=74 | after: load1=6.87 running=3 MHz0-5=3716 pkgC=77
+pair3 pos2 base MH/s=106.76 | mid: load1=6.88 running=8 MHz0-5=3800 pkgC=78 | before: load1=6.87 running=3 MHz0-5=3716 pkgC=77 | after: load1=6.89 running=2 MHz0-5=2579 pkgC=69
+end 2026-11-14T01:22:57+01:00
+
+## Script (/tmp/cand-bench.sh, verbatim)
+#!/bin/bash
+B=/tmp/iso/patched/v2/target/release/vanity-miner; C=/tmp/cand/vanity-miner
+bin(){ [ $1 = cand ] && echo $C || echo $B; }
+fr(){ awk '/cpu MHz/{a[n++]=$4} END{for(i=0;i<6;i++)s+=a[i]; printf "%.0f", s/6}' /proc/cpuinfo; }
+tel(){ echo "load1=$(cut -d' ' -f1 /proc/loadavg) running=$(awk '/procs_running/{print $2}' /proc/stat) MHz0-5=$(fr) pkgC=$(( $(cat /sys/class/thermal/thermal_zone3/temp)/1000 ))"; }
+run(){ d=$(mktemp -d /tmp/ib.XXXX); ( sleep 5; echo "mid: $(tel)" > $d.mid ) & r=$(taskset -c 0-5 $(bin $1) --prefix zzzzzzzzzz --threads 6 --max-secs $2 --state $d 2>&1 >/dev/null | grep -o 'rate_MH/s=[0-9.]*' | cut -d= -f2); wait; echo "$r | $(cat $d.mid)"; rm -rf $d $d.mid; }
+echo "start $(date -Is) $(uptime)"
+for a in base cand; do echo "warmup $a 4s: $(run $a 4)"; done
+RANDOM=2027; orders=("base cand" "cand base"); if (( RANDOM%2 )); then orders+=("base cand"); else orders+=("cand base"); fi
+p=0; for o in "${orders[@]}"; do p=$((p+1)); i=0; for a in $o; do i=$((i+1)); b="$(tel)"; r=$(run $a 10); af="$(tel)"; echo "pair$p pos$i $a MH/s=$r | before: $b | after: $af"; done; done
+echo "end $(date -Is)"
