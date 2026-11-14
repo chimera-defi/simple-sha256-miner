@@ -6,5 +6,14 @@ assert p["algorithm"] == "sha256", "only sha256 is checked here"
 d = hashlib.sha256(f'{p["input"]}:{p["nonce"]}'.encode()).digest()
 enc = base64.b64encode(d).decode() if p["encoding"] == "base64" else d.hex()
 assert enc == p["digest"], "digest mismatch"
-assert enc.startswith(p["prefix"]), "PREFIX MISMATCH"
+mode = p.get("ignore_case", False)
+assert isinstance(mode, bool), "ignore_case must be boolean"
+assert not mode or p["encoding"] == "base64", "ignore_case requires base64"
+prefix = p["prefix"]
+assert isinstance(prefix, str), "prefix must be a string"
+if mode:
+    assert 1 <= len(prefix) <= 10 and all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/" for c in prefix), "invalid base64 prefix"
+    assert enc[:len(prefix)].lower() == prefix.lower(), "PREFIX MISMATCH"
+else:
+    assert enc.startswith(prefix), "PREFIX MISMATCH"
 print("VALID", p["input"], p["nonce"], enc)

@@ -22,7 +22,7 @@ Logs go to stderr. On a hit, **stdout is only the proof**, so it pipes straight
 into the verifier:
 
 ```sh
-vanity-miner --prefix gensy | vanity-miner --verify    # VALID gensys:60237861 -> gensyT8AF4…
+vanity-miner --prefix gensy --ignore-case | vanity-miner --verify    # VALID gensys:60237861 -> gensyT8AF4…
 ```
 
 Proof (also saved as `DIR/FOUND.json`; extra fields are ignored on verify):
@@ -35,7 +35,7 @@ Proof (also saved as `DIR/FOUND.json`; extra fields are ignored on verify):
 
 `--verify` recomputes the digest with the `sha2` or `blake3` crate, not the
 batch hasher, and exits 1 on any mismatch. `validate.py` re-checks sha256 proofs
-with Python's `hashlib`.
+with Python's `hashlib`, including the optional `ignore_case` boolean (absent means exact-case).
 
 Stop with SIGINT or SIGTERM; rerun with the same flags to resume. Any change to
 input, algorithm, encoding, prefix or chunk size is refused against old state:

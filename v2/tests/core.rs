@@ -544,3 +544,64 @@ fn ignore_case_prefilter_rejects_mismatches_and_handles_symbols() {
         );
     }
 }
+
+#[test]
+fn ignore_case_cli_found_state_and_long_prefix() {
+    let base = spec(Algo::Sha256, Enc::Base64, "mOfz");
+    let digest = base.digest(0);
+    let encoded = base.encode(&digest);
+    for len in 1..=10 {
+        let prefix = encoded[..len]
+            .chars()
+            .map(|c| {
+                if c.is_ascii_lowercase() {
+                    c.to_ascii_uppercase()
+                } else {
+                    c.to_ascii_lowercase()
+                }
+            })
+            .collect::<String>();
+        let folded = Spec {
+            prefix: prefix.clone(),
+            ignore_case: true,
+            ..base.clone()
+        };
+        let (target, bits) = folded.target().unwrap();
+        let head = u32::from_be_bytes(digest[..4].try_into().unwrap());
+        assert!(folded.head_matches(head, target, bits));
+        assert!(folded.prefix_matches(&encoded));
+        assert!(verify(&folded.proof(0, &digest)).is_ok());
+    }
+    let d = std::env::temp_dir().join(format!("vm-folded-cli-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    let folded = Spec {
+        prefix: "MOFZ".into(),
+        ignore_case: true,
+        ..base.clone()
+    };
+    std::fs::write(d.join("FOUND.json"), folded.proof(0, &digest).to_string()).unwrap();
+    let dir = d.to_str().unwrap();
+    let good = run(&["--prefix", "MOFZ", "--ignore-case", "--state", dir]);
+    assert!(
+        good.status.success(),
+        "{}",
+        String::from_utf8_lossy(&good.stderr)
+    );
+    let exact = run(&["--prefix", "MOFZ", "--state", dir]);
+    assert!(
+        !exact.status.success(),
+        "exact-case mode must reject folded proof"
+    );
+    let hex = run(&[
+        "--prefix",
+        "a",
+        "--encoding",
+        "hex",
+        "--ignore-case",
+        "--state",
+        dir,
+    ]);
+    assert!(!hex.status.success());
+    let _ = std::fs::remove_dir_all(&d);
+}

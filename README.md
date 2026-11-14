@@ -53,8 +53,9 @@ Claude. Treat it as one data point, not a portable benchmark.
 
 ```sh
 cd v2 && cargo build --release
-target/release/vanity-miner --prefix gensys --threads 6 --state ./state | tee proof.json
+target/release/vanity-miner --prefix gensys --ignore-case --threads 6 --state ./state | tee proof.json
 target/release/vanity-miner --verify < proof.json      # recomputes everything
+python3 -I validate.py < proof.json                    # independent SHA-256 verifier (from v2/)
 ```
 
 Options: `--input TEXT` (hashed as `TEXT:<nonce>`), `--algorithm sha256|blake3`,
