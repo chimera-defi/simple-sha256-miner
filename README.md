@@ -68,17 +68,7 @@ The hand-written `--backend avx2` stays as an opt-in.
 
 ## License
 
-The repo's own code and docs (`v2/src`, `v2/tests`, `v2/validate.py`, `docs/`, the READMEs)
-are under the [MIT License](LICENSE), copyright Chimera (the repo owner and git author;
-the operator confirmed this holder for the project's own v2 code).
-
-Not covered by it:
-
-- `v2/vendor/tape-sha256`: keeps its own Apache-2.0 licence (`v2/vendor/tape-sha256/LICENSE`).
-  It is not relicensed.
-- `v0/miner.py` and `v1/miner.cpp`: their authorship is not verified (v0 was supplied by
-  the operator, v1 is the original host source), so no licence is claimed for them yet.
-- Other crates are dependencies under their own licences.
+MIT — see [LICENSE](LICENSE). Vendored dependencies retain their own licenses.
 
 Follow-ups: [docs/WORKLOG.md](docs/WORKLOG.md).
 
