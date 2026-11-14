@@ -1,8 +1,9 @@
 # v2: resumable, library-first Rust miner
 
 Finds a nonce so that the encoded digest of `<input>:<nonce>` starts with your
-prefix. A stop or crash never loses finished work and never counts work that was
-not done.
+prefix. Completed nonce ranges are durably journaled and checkpointed for
+resumption. Interrupted or unrecorded work may need repeating; incomplete
+chunks are not counted as completed.
 
 ## Use
 
@@ -61,8 +62,9 @@ use a new `--state` dir.
 | `blake3` | optional BLAKE3 | CC0/Apache-2.0 |
 | `clap`, `base64`, `hex`, `serde_json` | CLI, encodings, proofs | MIT/Apache-2.0 |
 
-The repo's own v2 code is MIT (root [`LICENSE`](../LICENSE)). `tape-sha256`
-is Apache-2.0 and keeps its own licence; it covers only that crate.
+The repo's own v2 code is MIT (root [`LICENSE`](../LICENSE)). The Git-pinned
+`tape-sha256` fork remains Apache-2.0; its license and upstream attribution
+must be preserved when redistributing the dependency.
 
 ## Speed
 
@@ -78,6 +80,13 @@ still re-checked with `sha2`.
 
 **Recommendation:** use the default `--backend lib`. It is the fastest backend we
 measured; the numbers below come from one noisy shared host and are not portable.
+
+### Platform support
+The reported performance measurements were collected on one x86-64 Intel
+i7-8700 host. The opt-in custom AVX2 backend requires an AVX2-capable x86-64
+CPU. The default library backend selects available CPU paths. Cross-platform
+builds and correctness have not been comprehensively verified; measured speeds
+are not portable performance guarantees.
 
 ### Backends
 

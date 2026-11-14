@@ -4,7 +4,7 @@ Small CPU search for a vanity hash. It tries nonces until the **Base64 form of
 `SHA-256(<phrase>:<nonce>)` starts with a chosen prefix**. It finds a real
 matching hash; it never edits the digest. This is not Bitcoin mining.
 
-**Use v2.** It is far faster than v1, and a stop or crash does not lose finished work.
+**Use v2.** It was substantially faster than v1 in the reported measurements. It resumes from durably recorded completed ranges after a stop or crash; unrecorded work may need to be repeated.
 
 ## Performance snapshot (i7-8700, noisy, pre-hill-climb)
 
@@ -68,7 +68,10 @@ The hand-written `--backend avx2` stays as an opt-in.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Vendored dependencies retain their own licenses.
+The project-owned v2 code is MIT — see [LICENSE](LICENSE). The operator confirms
+redistribution rights for the historical v0 and v1 files; their original
+authorship has not been independently established. Dependencies retain their
+own licenses, including Apache-2.0 for the Git-pinned `tape-sha256` fork.
 
 Follow-ups: [docs/WORKLOG.md](docs/WORKLOG.md).
 

@@ -2,6 +2,9 @@
 
 The first version. Kept for comparison. Use [v2](../v2/README.md) for real runs.
 
+The repository operator confirms the right to redistribute this file. Its
+original authorship has not been independently verified.
+
 1. **What it does.** `miner.cpp` hashes `gensys:<decimal nonce>` with OpenSSL
    SHA-256 on six worker threads and looks for a Base64 prefix of `gensys`.
 2. **Speed.** About 2.66 M hashes/s on one CPU, from its run logs (reported by
