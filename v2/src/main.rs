@@ -4,118 +4,216 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use vanity_miner::{state::{Intervals, Store}, *};
+use vanity_miner::{
+    state::{Intervals, Store},
+    *,
+};
 
 /// Search for a nonce whose encoded digest starts with PREFIX, or verify a proof (--verify).
 #[derive(Parser)]
 struct Cli {
-    #[arg(long)] prefix: Option<String>,
+    #[arg(long)]
+    prefix: Option<String>,
     /// Text hashed as "<input>:<nonce>".
-    #[arg(long, alias = "seed", default_value = "gensys")] input: String,
-    #[arg(long, value_enum, default_value = "sha256")] algorithm: Algo,
-    #[arg(long, value_enum, default_value = "base64")] encoding: Enc,
+    #[arg(long, alias = "seed", default_value = "gensys")]
+    input: String,
+    #[arg(long, value_enum, default_value = "sha256")]
+    algorithm: Algo,
+    #[arg(long, value_enum, default_value = "base64")]
+    encoding: Enc,
     /// SHA-256 engine: lib (default) or avx2 (opt-in, x86-64 only, sha256 only, short input).
-    #[arg(long, value_enum, default_value = "lib")] backend: Backend,
-    #[arg(long, default_value_t = 6)] threads: usize,
-    #[arg(long, default_value = "state")] state: PathBuf,
-    #[arg(long, default_value_t = 1 << 18)] chunk: u64,
+    #[arg(long, value_enum, default_value = "lib")]
+    backend: Backend,
+    #[arg(long, default_value_t = 6)]
+    threads: usize,
+    #[arg(long, default_value = "state")]
+    state: PathBuf,
+    #[arg(long, default_value_t = 1 << 18)]
+    chunk: u64,
     /// Lowest nonce to search (multiple of --chunk). Lower nonces are never covered.
-    #[arg(long, default_value_t = 0)] start_nonce: u64,
-    #[arg(long, default_value_t = u64::MAX)] max_secs: u64,
+    #[arg(long, default_value_t = 0)]
+    start_nonce: u64,
+    #[arg(long, default_value_t = u64::MAX)]
+    max_secs: u64,
     /// Verify a proof: JSON on stdin, or with --nonce and --digest.
-    #[arg(long)] verify: bool,
-    #[arg(long)] nonce: Option<u64>,
-    #[arg(long)] digest: Option<String>,
+    #[arg(long)]
+    verify: bool,
+    #[arg(long)]
+    nonce: Option<u64>,
+    #[arg(long)]
+    digest: Option<String>,
 }
 
 static STOP: AtomicBool = AtomicBool::new(false);
-extern "C" { fn signal(sig: i32, h: extern "C" fn(i32)) -> usize; }
-extern "C" fn on_sig(_: i32) { STOP.store(true, Ordering::SeqCst); }
+extern "C" {
+    fn signal(sig: i32, h: extern "C" fn(i32)) -> usize;
+}
+extern "C" fn on_sig(_: i32) {
+    STOP.store(true, Ordering::SeqCst);
+}
 
-struct Shared { cursor: u64, pending: Vec<(u64, u64)>, done: Intervals }
+struct Shared {
+    cursor: u64,
+    pending: Vec<(u64, u64)>,
+    done: Intervals,
+}
 
 fn main() {
     let c = Cli::parse();
-    let prefix = c.prefix.clone().unwrap_or_else(|| if c.verify { String::new() } else { die("--prefix is required") });
-    if c.verify { return run_verify(&c, &prefix); }
-    let sp = Spec { algo: c.algorithm, enc: c.encoding, input: c.input.clone(), prefix };
-    if let Err(e) = sp.target() { die(&e); }
-    if let Err(e) = check_backend(&sp, c.backend) { die(&e); }
-    if c.threads == 0 || c.chunk == 0 || c.start_nonce % c.chunk != 0 || c.start_nonce == NONCE_END { die("need threads >= 1, chunk >= 1, start-nonce a multiple of chunk and below 2^64-1"); }
+    let prefix = c.prefix.clone().unwrap_or_else(|| {
+        if c.verify {
+            String::new()
+        } else {
+            die("--prefix is required")
+        }
+    });
+    if c.verify {
+        return run_verify(&c, &prefix);
+    }
+    let sp = Spec {
+        algo: c.algorithm,
+        enc: c.encoding,
+        input: c.input.clone(),
+        prefix,
+    };
+    if let Err(e) = sp.target() {
+        die(&e);
+    }
+    if let Err(e) = check_backend(&sp, c.backend) {
+        die(&e);
+    }
+    if c.threads == 0 || c.chunk == 0 || c.start_nonce % c.chunk != 0 || c.start_nonce == NONCE_END
+    {
+        die("need threads >= 1, chunk >= 1, start-nonce a multiple of chunk and below 2^64-1");
+    }
     let (chunk, dir) = (c.chunk, c.state.clone());
     std::fs::create_dir_all(&dir).unwrap();
     let lock = std::fs::File::create(dir.join("lock")).unwrap(); // one miner per state dir
-    if lock.try_lock().is_err() { die("state dir locked by another miner"); }
+    if lock.try_lock().is_err() {
+        die("state dir locked by another miner");
+    }
     match std::fs::read_to_string(dir.join("FOUND.json")) {
-        Ok(t) => { // only ever return a proof that re-verifies AND belongs to this search
-            let p: serde_json::Value = serde_json::from_str(&t).unwrap_or_else(|e| die(&format!("FOUND.json: {e}")));
-            let ours = p["algorithm"] == name(&sp.algo) && p["encoding"] == name(&sp.enc) && p["input"] == sp.input && p["prefix"] == sp.prefix;
-            if let Err(e) = verify(&p) { die(&format!("FOUND.json failed verification: {e}")); }
-            if !ours { die("FOUND.json is for a different search"); }
+        Ok(t) => {
+            // only ever return a proof that re-verifies AND belongs to this search
+            let p: serde_json::Value =
+                serde_json::from_str(&t).unwrap_or_else(|e| die(&format!("FOUND.json: {e}")));
+            let ours = p["algorithm"] == name(&sp.algo)
+                && p["encoding"] == name(&sp.enc)
+                && p["input"] == sp.input
+                && p["prefix"] == sp.prefix;
+            if let Err(e) = verify(&p) {
+                die(&format!("FOUND.json failed verification: {e}"));
+            }
+            if !ours {
+                die("FOUND.json is for a different search");
+            }
             println!("{t}");
             return;
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => die(&format!("FOUND.json: {e}")),
     }
-    unsafe { signal(2, on_sig); signal(15, on_sig); }
-    let mut store = Store::open(&dir, &sp.key(), chunk).unwrap_or_else(|e| die(&format!("state: {e}")));
-    eprintln!("START algo={} backend={:?} prefix={} threads={} chunk={chunk} completed_nonces={}", name(&c.algorithm), c.backend, sp.prefix, c.threads, store.done.total());
-    let sh = Arc::new(Mutex::new(Shared { cursor: c.start_nonce, pending: vec![], done: store.done.clone() }));
+    unsafe {
+        signal(2, on_sig);
+        signal(15, on_sig);
+    }
+    let mut store =
+        Store::open(&dir, &sp.key(), chunk).unwrap_or_else(|e| die(&format!("state: {e}")));
+    eprintln!(
+        "START algo={} backend={:?} prefix={} threads={} chunk={chunk} completed_nonces={}",
+        name(&c.algorithm),
+        c.backend,
+        sp.prefix,
+        c.threads,
+        store.done.total()
+    );
+    let sh = Arc::new(Mutex::new(Shared {
+        cursor: c.start_nonce,
+        pending: vec![],
+        done: store.done.clone(),
+    }));
     let hashed = Arc::new(AtomicU64::new(0));
     let found = Arc::new(Mutex::new(None));
     let t0 = Instant::now();
-    let hs: Vec<_> = (0..c.threads).map(|_| {
-        let (sh, hashed, found, sp, be) = (sh.clone(), hashed.clone(), found.clone(), sp.clone(), c.backend);
-        std::thread::spawn(move || loop {
-            if STOP.load(Ordering::Relaxed) { return; }
-            let (s, e) = { // claim the lowest uncovered chunk at or after the cursor
-                let mut g = sh.lock().unwrap();
-                let s = g.done.next_free(g.cursor);
-                if s == NONCE_END { return; } // nonce space exhausted
-                let e = s.saturating_add(chunk); // saturates at NONCE_END: the last chunk may be short
-                g.cursor = e;
-                (s, e)
-            };
-            match mine_range(&sp, s, e - s, &STOP, be) {
-                ChunkResult::Done => {
-                    hashed.fetch_add(e - s, Ordering::Relaxed);
-                    let mut g = sh.lock().unwrap();
-                    g.done.insert(s, e);
-                    g.pending.push((s, e));
-                }
-                ChunkResult::Found(n) => { // a chunk holding a hit is never recorded complete
-                    *found.lock().unwrap() = Some(n);
-                    STOP.store(true, Ordering::SeqCst);
+    let hs: Vec<_> = (0..c.threads)
+        .map(|_| {
+            let (sh, hashed, found, sp, be) = (
+                sh.clone(),
+                hashed.clone(),
+                found.clone(),
+                sp.clone(),
+                c.backend,
+            );
+            std::thread::spawn(move || loop {
+                if STOP.load(Ordering::Relaxed) {
                     return;
                 }
-                ChunkResult::Stopped => return, // partial chunk discarded
-            }
+                let (s, e) = {
+                    // claim the lowest uncovered chunk at or after the cursor
+                    let mut g = sh.lock().unwrap();
+                    let s = g.done.next_free(g.cursor);
+                    if s == NONCE_END {
+                        return;
+                    } // nonce space exhausted
+                    let e = s.saturating_add(chunk); // saturates at NONCE_END: the last chunk may be short
+                    g.cursor = e;
+                    (s, e)
+                };
+                match mine_range(&sp, s, e - s, &STOP, be) {
+                    ChunkResult::Done => {
+                        hashed.fetch_add(e - s, Ordering::Relaxed);
+                        let mut g = sh.lock().unwrap();
+                        g.done.insert(s, e);
+                        g.pending.push((s, e));
+                    }
+                    ChunkResult::Found(n) => {
+                        // a chunk holding a hit is never recorded complete
+                        *found.lock().unwrap() = Some(n);
+                        STOP.store(true, Ordering::SeqCst);
+                        return;
+                    }
+                    ChunkResult::Stopped => return, // partial chunk discarded
+                }
+            })
         })
-    }).collect();
+        .collect();
     let (mut last_ck, mut last_pr) = (Instant::now(), Instant::now());
     loop {
         std::thread::sleep(Duration::from_millis(500));
-        if t0.elapsed().as_secs() >= c.max_secs { STOP.store(true, Ordering::SeqCst); }
+        if t0.elapsed().as_secs() >= c.max_secs {
+            STOP.store(true, Ordering::SeqCst);
+        }
         drain(&mut store, &sh);
         if last_ck.elapsed().as_secs() >= 30 || STOP.load(Ordering::Relaxed) {
-            store.checkpoint().unwrap_or_else(|e| die(&format!("checkpoint: {e}")));
+            store
+                .checkpoint()
+                .unwrap_or_else(|e| die(&format!("checkpoint: {e}")));
             last_ck = Instant::now();
         }
         if last_pr.elapsed().as_secs() >= 10 {
             let h = hashed.load(Ordering::Relaxed);
-            eprintln!("PROGRESS session_hashed={h} total_completed={} MH/s={:.2}", store.done.total(), h as f64 / t0.elapsed().as_secs_f64() / 1e6);
+            eprintln!(
+                "PROGRESS session_hashed={h} total_completed={} MH/s={:.2}",
+                store.done.total(),
+                h as f64 / t0.elapsed().as_secs_f64() / 1e6
+            );
             last_pr = Instant::now();
         }
-        if hs.iter().all(|h| h.is_finished()) { break; } // stopped, found, or nonce space exhausted
+        if hs.iter().all(|h| h.is_finished()) {
+            break;
+        } // stopped, found, or nonce space exhausted
     }
-    for h in hs { h.join().unwrap(); }
+    for h in hs {
+        h.join().unwrap();
+    }
     drain(&mut store, &sh);
     store.checkpoint().unwrap();
     let hit = *found.lock().unwrap();
     match hit {
         Some(n) => {
-            let d = sp.matches(n).unwrap_or_else(|| die("BUG: hit failed reference check"));
+            let d = sp
+                .matches(n)
+                .unwrap_or_else(|| die("BUG: hit failed reference check"));
             let txt = serde_json::to_string_pretty(&sp.proof(n, &d)).unwrap();
             let tmp = dir.join("FOUND.tmp");
             std::fs::write(&tmp, &txt).unwrap();
@@ -125,8 +223,19 @@ fn main() {
             eprintln!("FOUND");
             println!("{txt}"); // stdout carries only the proof, so it pipes into --verify
         }
-        None if store.done.next_free(c.start_nonce) == NONCE_END => { eprintln!("EXHAUSTED total_completed={} (no match in [{}, 2^64-1))", store.done.total(), c.start_nonce); std::process::exit(3) }
-        None => eprintln!("STOPPED total_completed={} rate_MH/s={:.2}", store.done.total(), hashed.load(Ordering::Relaxed) as f64 / t0.elapsed().as_secs_f64() / 1e6),
+        None if store.done.next_free(c.start_nonce) == NONCE_END => {
+            eprintln!(
+                "EXHAUSTED total_completed={} (no match in [{}, 2^64-1))",
+                store.done.total(),
+                c.start_nonce
+            );
+            std::process::exit(3)
+        }
+        None => eprintln!(
+            "STOPPED total_completed={} rate_MH/s={:.2}",
+            store.done.total(),
+            hashed.load(Ordering::Relaxed) as f64 / t0.elapsed().as_secs_f64() / 1e6
+        ),
     }
 }
 
@@ -139,14 +248,30 @@ fn run_verify(c: &Cli, prefix: &str) {
         std::io::stdin().read_to_string(&mut s).unwrap();
         serde_json::from_str(&s).unwrap_or_else(|e| die(&format!("bad JSON: {e}")))
     };
-    match verify(&p) { Ok(m) => println!("{m}"), Err(e) => { eprintln!("INVALID: {e}"); std::process::exit(1) } }
+    match verify(&p) {
+        Ok(m) => println!("{m}"),
+        Err(e) => {
+            eprintln!("INVALID: {e}");
+            std::process::exit(1)
+        }
+    }
 }
 
 /// Journal everything completed since the last call (idempotent; safe to call often).
 fn drain(store: &mut Store, sh: &Mutex<Shared>) {
-    let (p, d) = { let mut g = sh.lock().unwrap(); (std::mem::take(&mut g.pending), g.done.clone()) };
+    let (p, d) = {
+        let mut g = sh.lock().unwrap();
+        (std::mem::take(&mut g.pending), g.done.clone())
+    };
     store.done = d;
-    if !p.is_empty() { store.append(&p).unwrap_or_else(|e| die(&format!("journal: {e}"))); }
+    if !p.is_empty() {
+        store
+            .append(&p)
+            .unwrap_or_else(|e| die(&format!("journal: {e}")));
+    }
 }
 
-fn die(m: &str) -> ! { eprintln!("error: {m}"); std::process::exit(2) }
+fn die(m: &str) -> ! {
+    eprintln!("error: {m}");
+    std::process::exit(2)
+}

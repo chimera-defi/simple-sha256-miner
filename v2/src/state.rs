@@ -25,7 +25,13 @@ impl Intervals {
             return;
         }
         let (mut s, mut e) = (s, e);
-        let lo: Vec<(u64, u64)> = self.0.range(..=e).rev().take_while(|(_, &pe)| pe >= s).map(|(&a, &b)| (a, b)).collect();
+        let lo: Vec<(u64, u64)> = self
+            .0
+            .range(..=e)
+            .rev()
+            .take_while(|(_, &pe)| pe >= s)
+            .map(|(&a, &b)| (a, b))
+            .collect();
         for (a, b) in lo {
             s = s.min(a);
             e = e.max(b);
@@ -67,21 +73,39 @@ impl Store {
         if let Some(txt) = read_optional(&dir.join("journal.log"))? {
             let mut lines = txt.lines().peekable();
             if let Some(h) = lines.next_if(|l| l.starts_with("H ")) {
-                if h != header { return Err(bad("journal is for a different settings or chunk size")); }
+                if h != header {
+                    return Err(bad("journal is for a different settings or chunk size"));
+                }
                 hdr_ok = true;
             }
             for line in lines {
                 if let Some((s, e)) = parse_journal_line(line) {
                     // fail closed: unbound intervals are only trusted next to a checkpoint
-                    if !hdr_ok && ck.is_none() { return Err(bad("journal has no header and no checkpoint; refusing to trust it")); }
+                    if !hdr_ok && ck.is_none() {
+                        return Err(bad(
+                            "journal has no header and no checkpoint; refusing to trust it",
+                        ));
+                    }
                     done.insert(s, e); // torn/corrupt lines are skipped
                 }
             }
         }
-        let mut journal = OpenOptions::new().create(true).append(true).open(dir.join("journal.log"))?;
-        if journal.metadata()?.len() == 0 { writeln!(journal, "{header}")?; journal.sync_all()?; }
+        let mut journal = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("journal.log"))?;
+        if journal.metadata()?.len() == 0 {
+            writeln!(journal, "{header}")?;
+            journal.sync_all()?;
+        }
         File::open(dir)?.sync_all()?; // make the journal's directory entry durable
-        Ok(Store { dir: dir.to_path_buf(), key: key.into(), chunk, done, journal })
+        Ok(Store {
+            dir: dir.to_path_buf(),
+            key: key.into(),
+            chunk,
+            done,
+            journal,
+        })
     }
 
     /// Append completed intervals to the journal and fsync.
@@ -126,25 +150,40 @@ fn read_optional(p: &Path) -> io::Result<Option<String>> {
 
 fn parse_journal_line(l: &str) -> Option<(u64, u64)> {
     let p: Vec<&str> = l.split(' ').collect();
-    if p.len() != 4 || p[0] != "D" { return None; }
+    if p.len() != 4 || p[0] != "D" {
+        return None;
+    }
     let body = format!("D {} {}", p[1], p[2]);
-    if format!("{:016x}", fnv(&body)) != p[3] { return None; }
+    if format!("{:016x}", fnv(&body)) != p[3] {
+        return None;
+    }
     let (s, e) = (p[1].parse().ok()?, p[2].parse().ok()?);
-    if s < e { Some((s, e)) } else { None }
+    if s < e {
+        Some((s, e))
+    } else {
+        None
+    }
 }
 
 fn parse_checkpoint(txt: &str, key: &str, chunk: u64) -> io::Result<Intervals> {
     let bad = |m: &str| io::Error::new(io::ErrorKind::InvalidData, format!("checkpoint: {m}"));
     let idx = txt.rfind("sum ").ok_or_else(|| bad("no checksum"))?;
     let (body, sum) = txt.split_at(idx);
-    if format!("sum {:016x}\n", fnv(body)) != sum { return Err(bad("checksum mismatch")); }
+    if format!("sum {:016x}\n", fnv(body)) != sum {
+        return Err(bad("checksum mismatch"));
+    }
     let mut it = Intervals::default();
     for l in body.lines() {
         let p: Vec<&str> = l.split(' ').collect();
         match p.as_slice() {
             ["key", v] if *v != key => return Err(bad("settings differ from state")),
-            ["chunk", v] if v.parse::<u64>().ok() != Some(chunk) => return Err(bad("chunk size differs from state")),
-            ["I", s, e] => it.insert(s.parse().map_err(|_| bad("num"))?, e.parse().map_err(|_| bad("num"))?),
+            ["chunk", v] if v.parse::<u64>().ok() != Some(chunk) => {
+                return Err(bad("chunk size differs from state"))
+            }
+            ["I", s, e] => it.insert(
+                s.parse().map_err(|_| bad("num"))?,
+                e.parse().map_err(|_| bad("num"))?,
+            ),
             _ => {}
         }
     }

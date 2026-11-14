@@ -15,7 +15,9 @@ const IV: [u32; 8] = [
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
 ];
 
-pub fn available() -> bool { is_x86_feature_detected!("avx2") }
+pub fn available() -> bool {
+    is_x86_feature_detected!("avx2")
+}
 
 /// SHA-256 of `pre ++ bodies[lane]` for 8 lanes (lengths may differ, each < 56 bytes). Panics
 /// without AVX2 or on a long message; callers check `available()` and the length first.
@@ -30,11 +32,17 @@ pub fn hash8(pre: &[u8], bodies: [&[u8]; 8]) -> [[u8; 32]; 8] {
         blk[pre.len()..n].copy_from_slice(b);
         blk[n] = 0x80;
         blk[56..].copy_from_slice(&(n as u64 * 8).to_be_bytes());
-        for i in 0..16 { w[i][l] = u32::from_be_bytes(blk[4 * i..4 * i + 4].try_into().unwrap()); }
+        for i in 0..16 {
+            w[i][l] = u32::from_be_bytes(blk[4 * i..4 * i + 4].try_into().unwrap());
+        }
     }
     let h = unsafe { x8(&w) };
     let mut out = [[0u8; 32]; 8];
-    for l in 0..8 { for i in 0..8 { out[l][4 * i..4 * i + 4].copy_from_slice(&h[i][l].to_be_bytes()); } }
+    for l in 0..8 {
+        for i in 0..8 {
+            out[l][4 * i..4 * i + 4].copy_from_slice(&h[i][l].to_be_bytes());
+        }
+    }
     out
 }
 
@@ -47,27 +55,64 @@ unsafe fn rotr<const N: i32, const M: i32>(x: __m256i) -> __m256i {
 #[target_feature(enable = "avx2")]
 unsafe fn x8(w_in: &[[u32; 8]; 16]) -> [[u32; 8]; 8] {
     let mut w = [_mm256_setzero_si256(); 64];
-    for i in 0..16 { w[i] = _mm256_loadu_si256(w_in[i].as_ptr() as *const __m256i); }
+    for i in 0..16 {
+        w[i] = _mm256_loadu_si256(w_in[i].as_ptr() as *const __m256i);
+    }
     for i in 16..64 {
         let (a, b) = (w[i - 15], w[i - 2]);
-        let s0 = _mm256_xor_si256(_mm256_xor_si256(rotr::<7, 25>(a), rotr::<18, 14>(a)), _mm256_srli_epi32(a, 3));
-        let s1 = _mm256_xor_si256(_mm256_xor_si256(rotr::<17, 15>(b), rotr::<19, 13>(b)), _mm256_srli_epi32(b, 10));
-        w[i] = _mm256_add_epi32(_mm256_add_epi32(w[i - 16], s0), _mm256_add_epi32(w[i - 7], s1));
+        let s0 = _mm256_xor_si256(
+            _mm256_xor_si256(rotr::<7, 25>(a), rotr::<18, 14>(a)),
+            _mm256_srli_epi32(a, 3),
+        );
+        let s1 = _mm256_xor_si256(
+            _mm256_xor_si256(rotr::<17, 15>(b), rotr::<19, 13>(b)),
+            _mm256_srli_epi32(b, 10),
+        );
+        w[i] = _mm256_add_epi32(
+            _mm256_add_epi32(w[i - 16], s0),
+            _mm256_add_epi32(w[i - 7], s1),
+        );
     }
     let mut v = [_mm256_setzero_si256(); 8];
-    for i in 0..8 { v[i] = _mm256_set1_epi32(IV[i] as i32); }
+    for i in 0..8 {
+        v[i] = _mm256_set1_epi32(IV[i] as i32);
+    }
     for i in 0..64 {
         let (a, b, c, d, e, f, g, h) = (v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
-        let s1 = _mm256_xor_si256(_mm256_xor_si256(rotr::<6, 26>(e), rotr::<11, 21>(e)), rotr::<25, 7>(e));
+        let s1 = _mm256_xor_si256(
+            _mm256_xor_si256(rotr::<6, 26>(e), rotr::<11, 21>(e)),
+            rotr::<25, 7>(e),
+        );
         let ch = _mm256_xor_si256(_mm256_and_si256(e, f), _mm256_andnot_si256(e, g));
-        let t1 = _mm256_add_epi32(_mm256_add_epi32(h, s1), _mm256_add_epi32(_mm256_add_epi32(ch, _mm256_set1_epi32(K[i] as i32)), w[i]));
-        let s0 = _mm256_xor_si256(_mm256_xor_si256(rotr::<2, 30>(a), rotr::<13, 19>(a)), rotr::<22, 10>(a));
-        let maj = _mm256_xor_si256(_mm256_xor_si256(_mm256_and_si256(a, b), _mm256_and_si256(a, c)), _mm256_and_si256(b, c));
-        v = [_mm256_add_epi32(t1, _mm256_add_epi32(s0, maj)), a, b, c, _mm256_add_epi32(d, t1), e, f, g];
+        let t1 = _mm256_add_epi32(
+            _mm256_add_epi32(h, s1),
+            _mm256_add_epi32(_mm256_add_epi32(ch, _mm256_set1_epi32(K[i] as i32)), w[i]),
+        );
+        let s0 = _mm256_xor_si256(
+            _mm256_xor_si256(rotr::<2, 30>(a), rotr::<13, 19>(a)),
+            rotr::<22, 10>(a),
+        );
+        let maj = _mm256_xor_si256(
+            _mm256_xor_si256(_mm256_and_si256(a, b), _mm256_and_si256(a, c)),
+            _mm256_and_si256(b, c),
+        );
+        v = [
+            _mm256_add_epi32(t1, _mm256_add_epi32(s0, maj)),
+            a,
+            b,
+            c,
+            _mm256_add_epi32(d, t1),
+            e,
+            f,
+            g,
+        ];
     }
     let mut o = [[0u32; 8]; 8];
     for i in 0..8 {
-        _mm256_storeu_si256(o[i].as_mut_ptr() as *mut __m256i, _mm256_add_epi32(v[i], _mm256_set1_epi32(IV[i] as i32)));
+        _mm256_storeu_si256(
+            o[i].as_mut_ptr() as *mut __m256i,
+            _mm256_add_epi32(v[i], _mm256_set1_epi32(IV[i] as i32)),
+        );
     }
     o
 }
