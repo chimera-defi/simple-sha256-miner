@@ -87,16 +87,15 @@ fn main() {
         die("need threads >= 1, chunk >= 1, start-nonce a multiple of chunk and below 2^64-1");
     }
     let (chunk, dir) = (c.chunk, c.state.clone());
-    std::fs::create_dir_all(&dir).unwrap();
-    let lock = std::fs::File::create(dir.join("lock")).unwrap(); // one miner per state dir
+    ok(std::fs::create_dir_all(&dir), "state dir");
+    let lock = ok(std::fs::File::create(dir.join("lock")), "lock file"); // one miner per state dir
     if lock.try_lock().is_err() {
         die("state dir locked by another miner");
     }
     match std::fs::read_to_string(dir.join("FOUND.json")) {
         Ok(t) => {
             // only ever return a proof that re-verifies AND belongs to this search
-            let p: serde_json::Value =
-                serde_json::from_str(&t).unwrap_or_else(|e| die(&format!("FOUND.json: {e}")));
+            let p: serde_json::Value = ok(serde_json::from_str(&t), "FOUND.json");
             let ours = p["algorithm"] == name(&sp.algo)
                 && p["encoding"] == name(&sp.enc)
                 && p["input"] == sp.input
@@ -117,8 +116,7 @@ fn main() {
         signal(2, on_sig);
         signal(15, on_sig);
     }
-    let mut store =
-        Store::open(&dir, &sp.key(), chunk).unwrap_or_else(|e| die(&format!("state: {e}")));
+    let mut store = ok(Store::open(&dir, &sp.key(), chunk), "state");
     eprintln!(
         "START algo={} backend={:?} prefix={} threads={} chunk={chunk} completed_nonces={}",
         name(&c.algorithm),
@@ -185,9 +183,7 @@ fn main() {
         }
         drain(&mut store, &sh);
         if last_ck.elapsed().as_secs() >= 30 || STOP.load(Ordering::Relaxed) {
-            store
-                .checkpoint()
-                .unwrap_or_else(|e| die(&format!("checkpoint: {e}")));
+            ok(store.checkpoint(), "checkpoint");
             last_ck = Instant::now();
         }
         if last_pr.elapsed().as_secs() >= 10 {
@@ -207,7 +203,7 @@ fn main() {
         h.join().unwrap();
     }
     drain(&mut store, &sh);
-    store.checkpoint().unwrap();
+    ok(store.checkpoint(), "checkpoint");
     let hit = *found.lock().unwrap();
     match hit {
         Some(n) => {
@@ -216,10 +212,19 @@ fn main() {
                 .unwrap_or_else(|| die("BUG: hit failed reference check"));
             let txt = serde_json::to_string_pretty(&sp.proof(n, &d)).unwrap();
             let tmp = dir.join("FOUND.tmp");
-            std::fs::write(&tmp, &txt).unwrap();
-            std::fs::File::open(&tmp).unwrap().sync_all().unwrap();
-            std::fs::rename(&tmp, dir.join("FOUND.json")).unwrap();
-            std::fs::File::open(&dir).unwrap().sync_all().unwrap();
+            ok(std::fs::write(&tmp, &txt), "FOUND.tmp write");
+            ok(
+                ok(std::fs::File::open(&tmp), "FOUND.tmp open").sync_all(),
+                "FOUND.tmp sync",
+            );
+            ok(
+                std::fs::rename(&tmp, dir.join("FOUND.json")),
+                "FOUND.json rename",
+            );
+            ok(
+                ok(std::fs::File::open(&dir), "state dir open").sync_all(),
+                "state dir sync",
+            );
             eprintln!("FOUND");
             println!("{txt}"); // stdout carries only the proof, so it pipes into --verify
         }
@@ -245,8 +250,8 @@ fn run_verify(c: &Cli, prefix: &str) {
                             "encoding": name(&c.encoding), "prefix": prefix })
     } else {
         let mut s = String::new();
-        std::io::stdin().read_to_string(&mut s).unwrap();
-        serde_json::from_str(&s).unwrap_or_else(|e| die(&format!("bad JSON: {e}")))
+        ok(std::io::stdin().read_to_string(&mut s), "stdin");
+        ok(serde_json::from_str(&s), "bad JSON")
     };
     match verify(&p) {
         Ok(m) => println!("{m}"),
@@ -265,10 +270,13 @@ fn drain(store: &mut Store, sh: &Mutex<Shared>) {
     };
     store.done = d;
     if !p.is_empty() {
-        store
-            .append(&p)
-            .unwrap_or_else(|e| die(&format!("journal: {e}")));
+        ok(store.append(&p), "journal");
     }
+}
+
+/// Unwrap a result or exit 2 with `error: <ctx>: <err>` (same exit path as `die`).
+fn ok<T, E: std::fmt::Display>(r: Result<T, E>, ctx: &str) -> T {
+    r.unwrap_or_else(|e| die(&format!("{ctx}: {e}")))
 }
 
 fn die(m: &str) -> ! {
