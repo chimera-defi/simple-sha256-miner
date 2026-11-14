@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use vanity_miner::{
-    state::{Intervals, Store},
+    state::{write_atomic, Intervals, Store},
     *,
 };
 
@@ -60,13 +60,11 @@ struct Shared {
 
 fn main() {
     let c = Cli::parse();
-    let prefix = c.prefix.clone().unwrap_or_else(|| {
-        if c.verify {
-            String::new()
-        } else {
-            die("--prefix is required")
-        }
-    });
+    let prefix = match (&c.prefix, c.verify) {
+        (Some(p), _) => p.clone(),
+        (None, true) => String::new(),
+        (None, false) => die("--prefix is required"),
+    };
     if c.verify {
         return run_verify(&c, &prefix);
     }
@@ -76,10 +74,7 @@ fn main() {
         input: c.input.clone(),
         prefix,
     };
-    if let Err(e) = sp.target() {
-        die(&e);
-    }
-    if let Err(e) = check_backend(&sp, c.backend) {
+    if let Err(e) = sp.target().and_then(|_| check_backend(&sp, c.backend)) {
         die(&e);
     }
     if c.threads == 0 || c.chunk == 0 || c.start_nonce % c.chunk != 0 || c.start_nonce == NONCE_END
@@ -211,19 +206,9 @@ fn main() {
                 .matches(n)
                 .unwrap_or_else(|| die("BUG: hit failed reference check"));
             let txt = serde_json::to_string_pretty(&sp.proof(n, &d)).unwrap();
-            let tmp = dir.join("FOUND.tmp");
-            ok(std::fs::write(&tmp, &txt), "FOUND.tmp write");
             ok(
-                ok(std::fs::File::open(&tmp), "FOUND.tmp open").sync_all(),
-                "FOUND.tmp sync",
-            );
-            ok(
-                std::fs::rename(&tmp, dir.join("FOUND.json")),
-                "FOUND.json rename",
-            );
-            ok(
-                ok(std::fs::File::open(&dir), "state dir open").sync_all(),
-                "state dir sync",
+                write_atomic(&dir, "FOUND.json", txt.as_bytes()),
+                "FOUND.json",
             );
             eprintln!("FOUND");
             println!("{txt}"); // stdout carries only the proof, so it pipes into --verify

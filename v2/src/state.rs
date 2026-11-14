@@ -64,11 +64,11 @@ impl Store {
         fs::create_dir_all(dir)?;
         let bad = |m: &str| io::Error::new(io::ErrorKind::InvalidData, m.to_string());
         let header = format!("H {key} {chunk}");
-        let mut done = Intervals::default();
         let ck = read_optional(&dir.join("checkpoint.txt"))?;
-        if let Some(txt) = &ck {
-            done = parse_checkpoint(txt, key, chunk)?; // binds settings + chunk
-        }
+        let mut done = match &ck {
+            Some(txt) => parse_checkpoint(txt, key, chunk)?, // binds settings + chunk
+            None => Intervals::default(),
+        };
         let mut hdr_ok = false;
         if let Some(txt) = read_optional(&dir.join("journal.log"))? {
             let mut lines = txt.lines().peekable();
@@ -127,16 +127,21 @@ impl Store {
             body += &format!("I {s} {e}\n");
         }
         body += &format!("sum {:016x}\n", fnv(&body));
-        let tmp = self.dir.join("checkpoint.tmp");
-        let mut f = File::create(&tmp)?;
-        f.write_all(body.as_bytes())?;
-        f.sync_all()?;
-        fs::rename(&tmp, self.dir.join("checkpoint.txt"))?;
-        File::open(&self.dir)?.sync_all()?;
+        write_atomic(&self.dir, "checkpoint.txt", body.as_bytes())?;
         self.journal.set_len(0)?;
         writeln!(self.journal, "H {} {}", self.key, self.chunk)?;
         self.journal.sync_all()
     }
+}
+
+/// Crash-safe replace of `dir/name`: write `<name>.tmp`, fsync, rename over, fsync the directory.
+pub fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> io::Result<()> {
+    let tmp = dir.join(name).with_extension("tmp");
+    let mut f = File::create(&tmp)?;
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    fs::rename(&tmp, dir.join(name))?;
+    File::open(dir)?.sync_all()
 }
 
 /// Missing file is fine (fresh state); any other read error must stop the miner.
@@ -149,20 +154,14 @@ fn read_optional(p: &Path) -> io::Result<Option<String>> {
 }
 
 fn parse_journal_line(l: &str) -> Option<(u64, u64)> {
-    let p: Vec<&str> = l.split(' ').collect();
-    if p.len() != 4 || p[0] != "D" {
+    let ["D", s, e, sum] = l.split(' ').collect::<Vec<_>>()[..] else {
+        return None;
+    };
+    if format!("{:016x}", fnv(&format!("D {s} {e}"))) != sum {
         return None;
     }
-    let body = format!("D {} {}", p[1], p[2]);
-    if format!("{:016x}", fnv(&body)) != p[3] {
-        return None;
-    }
-    let (s, e) = (p[1].parse().ok()?, p[2].parse().ok()?);
-    if s < e {
-        Some((s, e))
-    } else {
-        None
-    }
+    let (s, e) = (s.parse().ok()?, e.parse().ok()?);
+    (s < e).then_some((s, e))
 }
 
 fn parse_checkpoint(txt: &str, key: &str, chunk: u64) -> io::Result<Intervals> {
