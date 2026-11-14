@@ -58,8 +58,8 @@ target/release/vanity-miner --verify < proof.json      # recomputes everything
 ```
 
 Options: `--input TEXT` (hashed as `TEXT:<nonce>`), `--algorithm sha256|blake3`,
-`--encoding base64|hex`, `--threads N`, `--backend lib|avx2`. Base64 prefixes are case-sensitive; hex is lowercase.
-Each extra prefix character makes the expected work 64× (base64) or 16× (hex)
+`--encoding base64|hex`, `--threads N`, `--backend lib|avx2`. Base64 prefixes are case-sensitive by default; use `--ignore-case` to accept ASCII letter case variants (the original challenge). Hex stays lowercase and does not accept `--ignore-case`.
+Each extra exact-case prefix character makes the expected work 64× (base64) or 16× (hex); in Base64 ignore-case mode, alphabetic characters add a 32× factor, while digits and symbols add 64×
 larger. No promise of when a match appears.
 
 **Recommended: the default `--backend lib`** (patched `tape-sha256`). It was the fastest
@@ -81,3 +81,7 @@ Follow-ups: [docs/WORKLOG.md](docs/WORKLOG.md).
 2. **Claude (Wren):** engineering, tests, and documentation (v2 search, journal and checkpoint, validator).
 3. **ChatGPT:** coordination, benchmark runs and early docs.
 4. **Codex:** no verified contribution, so none is claimed.
+
+## Challenge matching mode
+
+For the original case-insensitive Base64 challenge, use `--prefix gensys --ignore-case`. The default remains exact-case for compatibility. Case-insensitive mode is a distinct journal/checkpoint search identity; do not reuse an exact-case state directory. Existing proofs without an `ignore_case` field are verified as exact-case. For a six-letter alphabetic prefix, case-insensitive matching has 64 times the hit probability, without changing hash throughput.

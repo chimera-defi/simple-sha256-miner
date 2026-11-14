@@ -43,3 +43,5 @@ Stop rule: any experiment that fails the digest-equivalence tests is dropped.
 ## Input formats
 
 v0, v1 and v2 all hash `<input>:<unpadded decimal nonce>`. Checked: `v0/miner.py` uses `f"gensys:{nonce}"`; `v1/miner.cpp` line 35 uses `snprintf(msg, ..., "gensys:%llu", nonce)`; v2 uses `<input>:<nonce>` with `--input` defaulting to `gensys`. The default input is `gensys`. The Base64 prefix is case-sensitive. v1 and v2 start at nonce 0 (v2 can start elsewhere with `--start-nonce`).
+
+- **Local-only review (uncommitted):** proposed v2 `--ignore-case` Base64 search mode with a case-aware first-word filter, verifier/proof compatibility and separate durable state identity. Historical v0/v1 remain exact-case. Do not claim release or publication until reviewed and approved.

@@ -7,6 +7,7 @@ fn spec(algo: Algo, enc: Enc, prefix: &str) -> Spec {
         enc,
         input: "gensys".into(),
         prefix: prefix.into(),
+        ignore_case: false,
     }
 }
 
@@ -428,4 +429,118 @@ fn nonce_space_end_exits_under_avx2_too() {
     ]);
     assert_eq!(o.status.code(), Some(3));
     let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn ignore_case_reference_and_prefilter_agree() {
+    let stop = AtomicBool::new(false);
+    for algo in [Algo::Sha256, Algo::Blake3] {
+        for len in 1..=10 {
+            for nonce in 0..200u64 {
+                let base = spec(algo, Enc::Base64, "A");
+                let encoded = base.encode(&base.digest(nonce));
+                let prefix: String = encoded
+                    .chars()
+                    .take(len)
+                    .map(|c| {
+                        if c.is_ascii_lowercase() {
+                            c.to_ascii_uppercase()
+                        } else if c.is_ascii_uppercase() {
+                            c.to_ascii_lowercase()
+                        } else {
+                            c
+                        }
+                    })
+                    .collect();
+                let sp = Spec {
+                    prefix,
+                    ignore_case: true,
+                    ..base
+                };
+                let (target, bits) = sp.target().unwrap();
+                let digest = sp.digest(nonce);
+                let head = u32::from_be_bytes(digest[..4].try_into().unwrap());
+                assert!(
+                    sp.head_matches(head, target, bits),
+                    "{algo:?} len={len} nonce={nonce}"
+                );
+                assert!(sp.matches(nonce).is_some());
+                if len <= 3 {
+                    assert_eq!(
+                        mine_range(&sp, nonce, 1, &stop, Backend::Lib),
+                        ChunkResult::Found(nonce)
+                    );
+                    if algo == Algo::Sha256 && avx2::available() {
+                        assert_eq!(
+                            mine_range(&sp, nonce, 1, &stop, Backend::Avx2),
+                            ChunkResult::Found(nonce)
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+#[test]
+fn ignore_case_proofs_and_state_are_isolated() {
+    let exact = spec(Algo::Sha256, Enc::Base64, "mOfz");
+    let folded = Spec {
+        prefix: "MOFZ".into(),
+        ignore_case: true,
+        ..exact.clone()
+    };
+    let d = folded.matches(0).unwrap();
+    assert!(exact.matches(0).is_some());
+    assert!(folded.matches(0).is_some());
+    assert!(verify(&folded.proof(0, &d)).is_ok());
+    assert_ne!(exact.key(), folded.key());
+    let old = exact.proof(0, &d);
+    let mut legacy = old.clone();
+    legacy.as_object_mut().unwrap().remove("ignore_case");
+    assert!(verify(&legacy).is_ok());
+    let mut wrong = folded.proof(0, &d);
+    wrong["ignore_case"] = serde_json::json!("true");
+    assert!(verify(&wrong).is_err());
+    let mut wrong = folded.proof(0, &d);
+    wrong["digest"] = serde_json::json!("fake");
+    assert!(verify(&wrong).is_err());
+    let mut wrong = folded.proof(0, &d);
+    wrong["nonce"] = serde_json::json!(1);
+    assert!(verify(&wrong).is_err());
+    let mut invalid = folded.clone();
+    invalid.enc = Enc::Hex;
+    assert!(invalid.target().is_err());
+    let mut bad = exact.clone();
+    bad.prefix = "MOFZ".into();
+    assert!(bad.matches(0).is_none());
+}
+#[test]
+fn ignore_case_prefilter_rejects_mismatches_and_handles_symbols() {
+    let base = spec(Algo::Sha256, Enc::Base64, "mOfz");
+    let digest = base.digest(0);
+    let encoded = base.encode(&digest);
+    let head = u32::from_be_bytes(digest[..4].try_into().unwrap());
+    for len in 1..=10 {
+        let p = encoded[..len].to_ascii_uppercase();
+        let sp = Spec {
+            prefix: p,
+            ignore_case: true,
+            ..base.clone()
+        };
+        let (t, bits) = sp.target().unwrap();
+        assert!(sp.head_matches(head, t, bits));
+        assert!(sp.prefix_matches(&encoded));
+    }
+    for p in ["z", "+", "/", "0", "zzzzzzzzzz"] {
+        let sp = Spec {
+            prefix: p.into(),
+            ignore_case: true,
+            ..base.clone()
+        };
+        let (t, bits) = sp.target().unwrap();
+        assert_eq!(
+            sp.head_matches(head, t, bits),
+            sp.prefix_matches(&encoded) || bits > 32 && sp.head_matches(head, t, bits)
+        );
+    }
 }

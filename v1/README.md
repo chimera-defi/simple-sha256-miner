@@ -15,3 +15,5 @@ original authorship has not been independently verified.
 4. **Build.** Needs a C++ compiler and an OpenSSL `libcrypto`. See the source
    for flags.
 5. **Do not** run v1 and v2 on the same nonce range at once.
+
+Historical behavior: Base64 prefix matching is **case-sensitive**. The original challenge permits case-insensitive matching; use v2 with `--ignore-case` for that mode.

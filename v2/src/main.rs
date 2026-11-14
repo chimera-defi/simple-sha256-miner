@@ -21,6 +21,9 @@ struct Cli {
     algorithm: Algo,
     #[arg(long, value_enum, default_value = "base64")]
     encoding: Enc,
+    /// Match Base64 prefix ignoring ASCII letter case (new search identity).
+    #[arg(long)]
+    ignore_case: bool,
     /// SHA-256 engine: lib (default) or avx2 (opt-in, x86-64 only, sha256 only, short input).
     #[arg(long, value_enum, default_value = "lib")]
     backend: Backend,
@@ -73,6 +76,7 @@ fn main() {
         enc: c.encoding,
         input: c.input.clone(),
         prefix,
+        ignore_case: c.ignore_case,
     };
     if let Err(e) = sp.target().and_then(|_| check_backend(&sp, c.backend)) {
         die(&e);
@@ -94,7 +98,11 @@ fn main() {
             let ours = p["algorithm"] == name(&sp.algo)
                 && p["encoding"] == name(&sp.enc)
                 && p["input"] == sp.input
-                && p["prefix"] == sp.prefix;
+                && p["prefix"] == sp.prefix
+                && p.get("ignore_case")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                    == sp.ignore_case;
             if let Err(e) = verify(&p) {
                 die(&format!("FOUND.json failed verification: {e}"));
             }
@@ -232,12 +240,15 @@ fn main() {
 fn run_verify(c: &Cli, prefix: &str) {
     let p: serde_json::Value = if let (Some(n), Some(d)) = (c.nonce, &c.digest) {
         serde_json::json!({ "input": c.input, "nonce": n, "digest": d, "algorithm": name(&c.algorithm),
-                            "encoding": name(&c.encoding), "prefix": prefix })
+                            "encoding": name(&c.encoding), "prefix": prefix, "ignore_case": c.ignore_case })
     } else {
         let mut s = String::new();
         ok(std::io::stdin().read_to_string(&mut s), "stdin");
         ok(serde_json::from_str(&s), "bad JSON")
     };
+    if c.ignore_case && c.encoding != Enc::Base64 {
+        die("--ignore-case requires --encoding base64");
+    }
     match verify(&p) {
         Ok(m) => println!("{m}"),
         Err(e) => {

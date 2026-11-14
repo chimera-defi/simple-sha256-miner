@@ -9,7 +9,7 @@ chunks are not counted as completed.
 
 ```sh
 cargo build --release
-vanity-miner --prefix PREFIX [--input TEXT] [--algorithm sha256|blake3]
+vanity-miner --prefix PREFIX [--ignore-case] [--input TEXT] [--algorithm sha256|blake3]
              [--encoding base64|hex] [--threads N] [--state DIR]
              [--backend lib|avx2] [--chunk C] [--start-nonce S] [--max-secs T]
 vanity-miner --verify < proof.json
@@ -180,3 +180,7 @@ Prefix is 1-10 base64 or 1-16 hex characters, matched at the start of the
 encoded digest. Output is the 32-byte digest only.
 
 Follow-ups: [docs/WORKLOG.md](../docs/WORKLOG.md).
+
+### Case-insensitive Base64 mode
+
+Use `--prefix gensys --ignore-case` to match the original challenge: ASCII alphabetic Base64 symbols match either case, while digits, `+`, and `/` match exactly. The default remains case-sensitive. The fast first-word filter and full proof verifier share these semantics; `--ignore-case` is rejected for hex. Existing proofs without the `ignore_case` boolean retain exact-case meaning. The search-state key differs between exact and ignore-case mode; use a fresh state directory when switching. The v0/v1 examples remain exact-case historical references.

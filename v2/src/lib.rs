@@ -16,7 +16,7 @@ use clap::ValueEnum;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-#[derive(Clone, Copy, PartialEq, ValueEnum)]
+#[derive(Clone, Copy, PartialEq, ValueEnum, Debug)]
 pub enum Algo {
     Sha256,
     Blake3,
@@ -66,6 +66,7 @@ pub struct Spec {
     pub enc: Enc,
     pub input: String,
     pub prefix: String,
+    pub ignore_case: bool,
 }
 
 const B64: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -73,16 +74,24 @@ const B64: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345678
 impl Spec {
     /// State key: hex of the canonical settings, so any change selects a different search.
     pub fn key(&self) -> String {
-        hex::encode(format!(
+        let mut key = hex::encode(format!(
             "{}\n{}\n{}\n{}",
             name(&self.algo),
             name(&self.enc),
             self.input,
             self.prefix
-        ))
+        ));
+        // Keep the legacy exact-case key byte-for-byte; version the new mode only.
+        if self.ignore_case {
+            key.push_str(&hex::encode("\nmatching=v2-ascii-ignore-case"));
+        }
+        key
     }
-    /// Prefix as (value, bit count). Case-sensitive; hex must be lowercase.
+    /// Prefix as (value, bit count). Exact-case by default; hex must be lowercase.
     pub fn target(&self) -> Result<(u64, u32), String> {
+        if self.ignore_case && self.enc != Enc::Base64 {
+            return Err("--ignore-case requires --encoding base64".into());
+        }
         let (alpha, per, max) = if self.enc == Enc::Base64 {
             (B64, 6, 10)
         } else {
@@ -122,15 +131,66 @@ impl Spec {
             hex::encode(d)
         }
     }
+    pub fn prefix_matches(&self, encoded: &str) -> bool {
+        if self.ignore_case {
+            encoded
+                .get(..self.prefix.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(&self.prefix))
+        } else {
+            encoded.starts_with(&self.prefix)
+        }
+    }
+    /// Return a 32-bit mask and expected value for the first digest word.
+    /// Letter-case variants may produce extra prefilter hits, but never false negatives:
+    /// every prefilter hit is rechecked against the full digest.
+    pub fn head_filter(&self, exact_target: u64, bits: u32) -> (u32, u32) {
+        let m = bits.min(32);
+        if !self.ignore_case {
+            let mask = u32::MAX << (32 - m);
+            let expected = ((exact_target >> (bits - m)) as u32) << (32 - m);
+            return (mask, expected);
+        }
+        let mut mask = 0u32;
+        let mut expected = 0u32;
+        for (i, c) in self.prefix.bytes().enumerate() {
+            let start = (i as u32) * 6;
+            if start >= 32 {
+                break;
+            }
+            let width = (32 - start).min(6);
+            let shift = 32 - start - width;
+            let index = B64.find(c as char).expect("validated Base64 prefix") as u32;
+            let other = if c.is_ascii_alphabetic() {
+                B64.find((c as char).to_ascii_lowercase()).unwrap() as u32
+            } else {
+                index
+            };
+            let other = if c.is_ascii_lowercase() {
+                B64.find((c as char).to_ascii_uppercase()).unwrap() as u32
+            } else {
+                other
+            };
+            let local_mask = (!(index ^ other)) & 63;
+            let local_value = index & local_mask;
+            let local_bits = (1u32 << width) - 1;
+            mask |= ((local_mask >> (6 - width)) & local_bits) << shift;
+            expected |= ((local_value >> (6 - width)) & local_bits) << shift;
+        }
+        (mask, expected)
+    }
+    pub fn head_matches(&self, head: u32, exact_target: u64, bits: u32) -> bool {
+        let (mask, expected) = self.head_filter(exact_target, bits);
+        head & mask == expected
+    }
     pub fn matches(&self, nonce: u64) -> Option<[u8; 32]> {
         let d = self.digest(nonce);
-        self.encode(&d).starts_with(&self.prefix).then_some(d)
+        self.prefix_matches(&self.encode(&d)).then_some(d)
     }
     /// Human-readable proof of a hit.
     pub fn proof(&self, nonce: u64, d: &[u8; 32]) -> Value {
         json!({ "input": self.input, "nonce": nonce, "message": format!("{}:{nonce}", self.input),
                 "algorithm": name(&self.algo), "encoding": name(&self.enc), "prefix": self.prefix,
-                "digest": self.encode(d), "digest_hex": hex::encode(d) })
+                "digest": self.encode(d), "digest_hex": hex::encode(d), "ignore_case": self.ignore_case })
     }
 }
 
@@ -152,6 +212,11 @@ pub fn verify(p: &Value) -> Result<String, String> {
         enc: parse(&s("encoding")?)?,
         input: s("input")?,
         prefix: s("prefix")?,
+        ignore_case: match p.get("ignore_case") {
+            None | Some(Value::Bool(false)) => false,
+            Some(Value::Bool(true)) => true,
+            _ => return Err("ignore_case must be a boolean".into()),
+        },
     };
     sp.target()?;
     let opt = |k: &str| p[k].as_str(); // optional string field
@@ -166,7 +231,7 @@ pub fn verify(p: &Value) -> Result<String, String> {
     if opt("digest_hex").is_some_and(|h| h != hex::encode(d)) {
         return Err("digest_hex mismatch".into());
     }
-    if !enc.starts_with(&sp.prefix) {
+    if !sp.prefix_matches(&enc) {
         return Err(format!("digest does not start with '{}'", sp.prefix));
     }
     Ok(format!("VALID {}:{nonce} -> {enc}", sp.input))
@@ -188,8 +253,7 @@ pub const NONCE_END: u64 = u64::MAX;
 /// with the reference implementation.
 pub fn mine_range(sp: &Spec, start: u64, len: u64, stop: &AtomicBool, be: Backend) -> ChunkResult {
     let (t, bits) = sp.target().expect("bad prefix");
-    let m = bits.min(32); // prefilter on the top m bits of the first digest word
-    let (want, shift) = ((t >> (bits - m)) as u32, 32 - m);
+    let (mask, expected) = sp.head_filter(t, bits);
     let pre = format!("{}:", sp.input).into_bytes();
     let end = start.checked_add(len).expect("range overflows u64");
     let mut n = start;
@@ -257,7 +321,7 @@ pub fn mine_range(sp: &Spec, start: u64, len: u64, stop: &AtomicBool, be: Backen
             }
         }
         for (i, &head) in heads.iter().enumerate().take(cnt) {
-            if head >> shift == want && sp.matches(n + i as u64).is_some() {
+            if head & mask == expected && sp.matches(n + i as u64).is_some() {
                 return ChunkResult::Found(n + i as u64);
             }
         }
