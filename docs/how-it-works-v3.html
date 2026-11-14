@@ -257,7 +257,7 @@ B  1 1 0 0 1 1 0 0
 <section id="s3" aria-labelledby="h3">
 <h2 id="h3">3. What “eight lanes” means</h2>
 <p class="q">What does an AVX2 register actually hold?</p>
-<p>A processor works on values held in <strong>registers</strong>, small fast slots inside it. An AVX2 register is 256 bits wide. SHA-256 works on <strong>32-bit</strong> words, and 256 ÷ 32 = 8, so one register holds eight words side by side. Each of the eight 32-bit slices is a <strong>lane</strong>. One AVX2 instruction acts on all eight lanes at once, and lanes never mix.<sup><a href="#fn6" id="r6">[6]</a></sup></p>
+<p>A processor works on values held in <strong>registers</strong>, small fast slots inside it. An AVX2 register is 256 bits wide. SHA-256 works on <strong>32-bit</strong> words, and 256 ÷ 32 = 8, so one register holds eight words side by side. Each of the eight 32-bit slices is a <strong>lane</strong>. One AVX2 instruction acts on all eight lanes at once. The instructions used here keep each lane separate; AVX2 does have shuffle instructions that move values between lanes, but this hashing layout does not need them.<sup><a href="#fn6" id="r6">[6]</a></sup></p>
 <div class="lanes" aria-label="Eight lanes, numbered 0 to 7">
 <span class="lane-0">0</span><span class="lane-1">1</span><span class="lane-2">2</span><span class="lane-3">3</span><span class="lane-4">4</span><span class="lane-5">5</span><span class="lane-6">6</span><span class="lane-7">7</span>
 </div>
@@ -354,7 +354,7 @@ B  1 1 0 0 1 1 0 0
 </tbody>
 </table>
 <p>In ignore-case mode the filter treats upper and lower case letters as equal, again over the first 32 bits only; survivors are still checked in full.</p>
-<div class="callout"><p><strong>When the new path runs.</strong> Only when the library picked its AVX2 kernel, and only if the prefix plus counter fit in one 64-byte hashing block: at most 55 bytes (64, minus 1 padding byte and 8 length bytes). Anywhere else the stock path runs and the answers are identical.<sup><a href="#fn11" id="r11">[11]</a></sup></p></div>
+<div class="callout"><p><strong>When the new path runs.</strong> Only when the library picked its AVX2 kernel, and only if the whole message (phrase, colon and counter) fits in one 64-byte hashing block: at most 55 bytes (64, minus 1 padding byte and 8 length bytes). Anywhere else the stock path runs and the answers are identical.<sup><a href="#fn11" id="r11">[11]</a></sup></p></div>
 <div class="callout"><p><strong>Known and not known.</strong> Known from the design and source: the same rounds, a first-word output, the filter, and the full re-check of survivors. Measured, once, in the next section: about 1.5 times faster. Not established: how much of that each piece explains, because nobody profiled the run.</p></div>
 <p><span class="tag">Proposed, not merged</span> The change is proposed to the library as <a href="https://github.com/spool-labs/sha256/pull/4" rel="noopener noreferrer">spool-labs/sha256 pull request #4</a>. Until it is merged and released, the miner builds against a fork that carries it.</p>
 <details><summary>Go deeper: the hand-written kernel that lost</summary>
