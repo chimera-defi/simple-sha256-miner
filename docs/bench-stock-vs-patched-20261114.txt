@@ -1,0 +1,61 @@
+# Second pilot: stock tape vs patched tape (NOT the lib-vs-avx2 pilot)
+
+This file archives a second, separate bounded pilot. The first pilot (`bench-pilot-20261114.txt`)
+compared `--backend lib` with `--backend avx2`. This one compares the stock tape-sha256 call with
+the patched first-word call, inside the same lib backend.
+
+Provenance
+- Date/host: 2026-11-14 01:10:10 to 01:11:24 +01:00, shared 12-thread i7-8700, powersave governor.
+- Source: private HEAD 85096a8 for both binaries (same Cargo.lock, same vendored tape with PATCH.diff).
+- Only code difference (built in /tmp copies, not committed): the callsite at v2/src/lib.rs:141.
+  patched = tape_sha256::hash_short_heads. stock = hash_many_prefixed into a function-level
+  [[u8;32];BATCH] buffer, then u32::from_be_bytes(d[..4]) (the b18e923 callsite text). The literal
+  b18e923 binary was not run.
+- Toolchain: rustc 1.99.0 (b940084d7 2026-09-28); release profile opt-level=3, lto=true,
+  codegen-units=1, panic=abort; no RUSTFLAGS; default features.
+- Binaries: patched sha256 9eea54766fc21095e9ee676a9ba098083c2d7a9990037caf0947e40df47cdbf9;
+  stock sha256 e5acf373180e31a4fdff4bfaa37cf3301ee6d7af662f9375279c013be482e98f.
+- Protocol: taskset -c 0-5, --threads 6, --backend lib, prefix zzzzzzzzzz (unreachable), default chunk,
+  fresh state per run, 4 s warmup per arm, then 3 pairs x 10 s per arm. Order: pair1 stock,patched;
+  pair2 patched,stock; pair3 stock,patched (bash RANDOM seed 2026; first two fixed AB/BA).
+- Original files: /tmp/iso-raw.txt sha256 aeff6fd9c94d54408bbe5173ad557f9fa78a33f895d64193578359b9827c5be1;
+  /tmp/iso-bench.sh sha256 3596db1ecdb620dfa14430d8d3ace8a64cd06a233458ffb4153d5629509f7ea4.
+  Both are reproduced verbatim below.
+
+Result: patched/stock paired ratios 1.327, 1.518, 1.543 (median 1.518); arm medians patched 108.61,
+stock 71.55 MH/s. Patched faster in 3 of 3 pairs.
+
+Caveats
+- n=3; shared host whose 1-min load rose from 2.3 to 5.7 during the run (includes the miner's 6 threads);
+  2-5 other runnable tasks at the 5 s samples.
+- Clock and temperature are single-instant samples (some clock reads 2.5-3.1 GHz); frequency not locked.
+- Stock arm spread (69-82) is wider than patched (107-109); the pair 1 ratio of 1.33 is partly noise.
+- "Stock" here still includes the miner's running decimal counter; it is not vanilla tape. The earlier
+  unpinned stock mean of 63 MH/s is not comparable with these pinned runs.
+- Same CPU only; AVX-512 or SHA-NI machines take the stock path anyway.
+- Pilot, not the planned 10 x 30 s protocol. No bus message or tool output replaces the raw log below.
+
+## Raw log (/tmp/iso-raw.txt, verbatim)
+start 2026-11-14T01:10:10+01:00  01:10:10 up 22 days,  1:39,  5 users,  load average: 2.47, 3.47, 4.10
+warmup stock 4s: 84.58 | mid: load1=2.35 running=2 MHz0-5=4299 pkgC=67
+warmup patched 4s: 114.70 | mid: load1=2.32 running=4 MHz0-5=3716 pkgC=68
+pair1 pos1 stock MH/s=82.20 | mid: load1=2.70 running=8 MHz0-5=3900 pkgC=77 | before: load1=2.32 running=2 MHz0-5=3716 pkgC=67 | after: load1=3.04 running=2 MHz0-5=2553 pkgC=71
+pair1 pos2 patched MH/s=109.12 | mid: load1=3.36 running=8 MHz0-5=3868 pkgC=76 | before: load1=3.04 running=3 MHz0-5=3144 pkgC=72 | after: load1=3.65 running=2 MHz0-5=3717 pkgC=71
+pair2 pos1 patched MH/s=108.61 | mid: load1=3.92 running=9 MHz0-5=3800 pkgC=76 | before: load1=3.65 running=2 MHz0-5=3719 pkgC=71 | after: load1=4.25 running=3 MHz0-5=4300 pkgC=71
+pair2 pos2 stock MH/s=71.55 | mid: load1=4.71 running=11 MHz0-5=3800 pkgC=76 | before: load1=4.25 running=3 MHz0-5=4299 pkgC=71 | after: load1=4.97 running=5 MHz0-5=4299 pkgC=78
+pair3 pos1 stock MH/s=69.27 | mid: load1=5.29 running=9 MHz0-5=3800 pkgC=78 | before: load1=4.97 running=4 MHz0-5=4300 pkgC=78 | after: load1=5.51 running=3 MHz0-5=4298 pkgC=73
+pair3 pos2 patched MH/s=106.90 | mid: load1=5.63 running=9 MHz0-5=3900 pkgC=77 | before: load1=5.51 running=3 MHz0-5=4301 pkgC=75 | after: load1=5.74 running=3 MHz0-5=4300 pkgC=72
+end 2026-11-14T01:11:24+01:00
+
+## Script (/tmp/iso-bench.sh, verbatim)
+#!/bin/bash
+P=/tmp/iso/patched/v2/target/release/vanity-miner; S=/tmp/iso/stock/v2/target/release/vanity-miner
+bin(){ [ $1 = patched ] && echo $P || echo $S; }
+fr(){ awk '/cpu MHz/{a[n++]=$4} END{for(i=0;i<6;i++)s+=a[i]; printf "%.0f", s/6}' /proc/cpuinfo; }
+tel(){ echo "load1=$(cut -d' ' -f1 /proc/loadavg) running=$(awk '/procs_running/{print $2}' /proc/stat) MHz0-5=$(fr) pkgC=$(( $(cat /sys/class/thermal/thermal_zone3/temp)/1000 ))"; }
+run(){ d=$(mktemp -d /tmp/ib.XXXX); ( sleep 5; echo "mid: $(tel)" > $d.mid ) & r=$(taskset -c 0-5 $(bin $1) --prefix zzzzzzzzzz --threads 6 --max-secs $2 --state $d 2>&1 >/dev/null | grep -o 'rate_MH/s=[0-9.]*' | cut -d= -f2); wait; echo "$r | $(cat $d.mid)"; rm -rf $d $d.mid; }
+echo "start $(date -Is) $(uptime)"
+for a in stock patched; do echo "warmup $a 4s: $(run $a 4)"; done
+RANDOM=2026; orders=("stock patched" "patched stock"); if (( RANDOM%2 )); then orders+=("stock patched"); else orders+=("patched stock"); fi
+p=0; for o in "${orders[@]}"; do p=$((p+1)); i=0; for a in $o; do i=$((i+1)); b="$(tel)"; r=$(run $a 10); af="$(tel)"; echo "pair$p pos$i $a MH/s=$r | before: $b | after: $af"; done; done
+echo "end $(date -Is)"

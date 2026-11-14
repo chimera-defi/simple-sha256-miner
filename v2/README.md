@@ -135,6 +135,25 @@ after each run, and some clock samples read about 2.5 GHz, so they are rough. Ra
 helpful (higher than the unpinned 6-thread runs above) but that is not isolated by this
 pilot.
 
+### Stock tape vs patched tape pilot (2026-11-14)
+
+A second bounded pilot, separate from the lib-vs-avx2 one above. Two binaries built from the
+same tree (HEAD `85096a8`, same `Cargo.lock`, same vendored tape); only the call at
+`src/lib.rs:141` differs: `hash_short_heads` (patched) or `hash_many_prefixed` plus
+`from_be_bytes` (stock, the `b18e923` callsite). Pinned to cores 0-5, 6 threads, 4 s warmup per
+arm, then 3 pairs of 10 s, order stock/patched, patched/stock, stock/patched. MH/s:
+
+| Pair | stock | patched | patched / stock |
+| --- | ---: | ---: | ---: |
+| 1 | 82.20 | 109.12 | 1.33 |
+| 2 | 71.55 | 108.61 | 1.52 |
+| 3 | 69.27 | 106.90 | 1.54 |
+
+Median ratio 1.52. Caveats: n = 3; the shared host's load rose from 2.3 to 5.7 during the run;
+clock and temperature were single samples; "stock" still has the miner's running counter, so it
+is not vanilla tape. Binary hashes, toolchain, per-run load, clock and temperature, and the
+verbatim raw log and script: [`docs/bench-stock-vs-patched-20261114.txt`](../docs/bench-stock-vs-patched-20261114.txt).
+
 Tried and not kept (no gain beyond the noise, 4 alternating runs each, 6 threads):
 batch size 64 (92) and 256 (96) against 128 (95); `--chunk` 2^16 (92) and 2^20 (94)
 against 2^18 (96). BLAKE3 is unbenchmarked and is not lane-batched.

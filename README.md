@@ -25,6 +25,12 @@ binary, not the planned full protocol): lib 108.6, 104.6, 99.5 vs avx2 76.9, 87.
 MH/s; lib was faster in all 3 pairs (medians 104.6 vs 80.2). One pinned 5 s warmup run
 of lib read 111.7. The host was shared and busy. Raw data: [docs/bench-pilot-20261114.txt](docs/bench-pilot-20261114.txt).
 
+**Second, separate pilot: stock tape vs patched tape** (same source and build, only the
+hash call differs; pinned to the 6 physical cores; 3 pairs of 10 s): patched 109.1, 108.6,
+106.9 vs stock 82.2, 71.6, 69.3 MH/s, paired ratios 1.33, 1.52, 1.54 (median 1.52). The
+host got busier during the run. This is not the lib-vs-avx2 pilot above. Archive with
+provenance and raw log: [docs/bench-stock-vs-patched-20261114.txt](docs/bench-stock-vs-patched-20261114.txt).
+
 Conditions: one shared 12-thread i7-8700 under other jobs, unreachable 10-char prefix,
 fresh state per run. There is no controlled idle-host benchmark yet, and the numbers do
 not transfer to other CPUs. Links: [Detailed benchmarks](v2/README.md#speed),
@@ -59,7 +65,8 @@ The hand-written `--backend avx2` stays as an opt-in.
 ## License
 
 The repo's own code and docs (`v2/src`, `v2/tests`, `v2/validate.py`, `docs/`, the READMEs)
-are under the [MIT License](LICENSE), copyright Chimera (the repo owner and git author).
+are under the [MIT License](LICENSE), copyright Chimera (the repo owner and git author;
+the operator confirmed this holder for the project's own v2 code).
 
 Not covered by it:
 
