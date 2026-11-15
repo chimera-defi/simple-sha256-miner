@@ -347,7 +347,7 @@ dependencies = [
 [[package]]
 name = "tape-sha256"
 version = "0.2.2"
-source = "git+https://github.com/chimera-defi/sha256?rev=391432abfe4cb7f4174978ffd7797cd96d6aed41#391432abfe4cb7f4174978ffd7797cd96d6aed41"
+source = "git+https://github.com/chimera-defi/sha256?rev=fd76bb03e8dfa910dc2a6b97a7e8871e369a6b01#fd76bb03e8dfa910dc2a6b97a7e8871e369a6b01"
 
 [[package]]
 name = "typenum"

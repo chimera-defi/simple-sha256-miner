@@ -1,0 +1,52 @@
+# Pin check: library commit 391432a against fd76bb0
+
+The miner pinned `tape-sha256` to commit 391432a of our fork. The upstream pull request
+(spool-labs/sha256#4) has since gained three commits: shorter docs with tests folded into two (cf0b55c), more test coverage
+for ragged lengths and prefix splits (def03bb), and a test comment fix (fd76bb0).
+Its head is fd76bb0. This file shows that moving the pin changed neither the output nor the speed.
+Every other log in `docs/` keeps the commit it actually ran on (391432a).
+
+What was checked
+- Source: `src/lib.rs` of the two commits is identical once `//` comment lines are removed. No other file
+  outside `tests/` and the library's README differs between the two commits.
+- Output: both binaries, one thread, `--prefix gensy --ignore-case` and `--prefix 00ab --encoding hex`,
+  found the same nonce and digest: 44682086 -> GEnSyGegdh5sG+Vm3BQktXM14xGYO5GaHxEpOVQT/uU= and
+  153562 -> 00abce719407265d947a2970c0c5dd29a7eb9d9b09143d44cbf1fde0ff1cf997.
+- Tests: `cargo test --release` in v2, 19 passed, on the new pin.
+- Speed: a short alternating pair run, below.
+
+Provenance
+- Date/host: 2026-11-15 15:23 to 15:26 +01:00, shared 12-thread i7-8700. rustc 1.99.0, same release profile.
+- old = repo main d45add0 (pin 391432a); binary sha256 e1713315c4ba541da01a3735030437e096bbafb1ab16d86da4c953261cc86691
+  (the same binary hash as the v2 build in `bench-cpp-vs-rust-20261115.txt`).
+- new = the same tree with only the pin and `Cargo.lock` changed to fd76bb0;
+  binary sha256 6513cec2b0f5e3c33a2482e4af93fdb47e43a4bafdac007e0247463eccb82534.
+- Protocol: `taskset -c 0-5`, `--threads 6`, default backend, prefix zzzzzzzzzz (unreachable), fresh state per run,
+  a 4 s warmup per arm, then three 10 s pairs in the order old/new, new/old, old/new.
+
+Result (MH/s): old 111.77, new 105.58 | new 99.29, old 104.36 | old 99.96, new 109.86.
+new/old paired ratios 0.945, 0.951, 1.099 (median 0.951). The new pin was ahead in 1 of 3 pairs.
+
+Caveats: n = 3 and the 1-min load rose from 3.1 to 5.6 during the run. The earlier pilots saw the same
+spread between runs of one binary. The source is the same, so the honest reading is "no difference
+beyond the noise", not "5% slower".
+
+## Script (verbatim) and raw output
+```
+OLD=$1; NEW=$2
+bin(){ [ $1 = old ] && echo $OLD || echo $NEW; }
+run(){ d=$(mktemp -d); r=$(taskset -c 0-5 $(bin $1) --prefix zzzzzzzzzz --threads 6 --max-secs $2 --state $d 2>&1 >/dev/null | grep -o 'rate_MH/s=[0-9.]*' | cut -d= -f2); echo "$1 $2s $r load=$(cut -d' ' -f1 /proc/loadavg)"; rm -rf $d; }
+echo "date $(date -Is)"; run old 4; run new 4
+for o in "old new" "new old" "old new"; do for a in $o; do run $a 10; done; done
+
+## raw output
+date 2026-11-15T15:23:54+01:00
+old 4s 100.51 load=3.07
+new 4s 106.92 load=3.07
+old 10s 111.77 load=4.02
+new 10s 105.58 load=4.41
+new 10s 99.29 load=4.81
+old 10s 104.36 load=5.29
+old 10s 99.96 load=5.55
+new 10s 109.86 load=5.62
+```
