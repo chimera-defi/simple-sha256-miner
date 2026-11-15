@@ -35,7 +35,7 @@ Proof (also saved as `DIR/FOUND.json`; extra fields are ignored on verify):
 
 `--verify` recomputes the digest with the `sha2` or `blake3` crate, not the
 batch hasher, and exits 1 on any mismatch. `validate.py` re-checks sha256 proofs
-with Python's `hashlib`, including the optional `ignore_case` boolean (absent means exact-case).
+with Python's `hashlib`, including the optional `ignore_case` boolean (absent means exact-case). Its own regression check is `python3 -I tests/validate_proof.py`.
 
 Stop with SIGINT or SIGTERM; rerun with the same flags to resume. Any change to
 input, algorithm, encoding, prefix or chunk size is refused against old state:
@@ -68,8 +68,12 @@ must be preserved when redistributing the dependency.
 
 ## Speed
 
-`tape-sha256` comes from our fork chimera-defi/sha256 at 391432a, which adds
-`hash_short_heads` (upstream PR spool-labs/sha256#4). Switch back to crates.io once it is
+`tape-sha256` comes from our fork chimera-defi/sha256, pinned by commit in `Cargo.toml` to
+`fd76bb0`, the head of upstream [spool-labs/sha256#4](https://github.com/spool-labs/sha256/pull/4).
+The fork adds `hash_short_heads`; it is a git dependency, not a vendored copy. The 42 times test in the
+[root README](../README.md) ran on the earlier commit `391432a`, which differs only in comments and
+tests in `src/lib.rs` ([pin check](../docs/bench-pin-fd76bb0-20261115.txt): same output, same speed
+within noise). Every run in this file is older and used a vendored copy, an earlier version of the same patch. Switch back to crates.io once the pull request is
 merged and released. `hash_short_heads` returns the first 32 bits of `SHA-256(prefix || body)` for
 messages that fit one block. The miner needs only those bits to test a prefix, so
 this skips the byte-wise digest output. It takes the fast path on AVX2 CPUs without AVX-512 (that is the CPU measured here)
@@ -147,8 +151,8 @@ pilot.
 ### Stock tape vs patched tape pilot (2026-11-14)
 
 A second bounded pilot, separate from the lib-vs-avx2 one above. Two binaries built from the
-same tree (HEAD `85096a8`, same `Cargo.lock`, same patched tape); only the call at
-`src/lib.rs:141` differs: `hash_short_heads` (patched) or `hash_many_prefixed` plus
+same tree (HEAD `85096a8`, same `Cargo.lock`, same patched tape); only the call
+in the miner's batch loop differs (now [`v2/src/lib.rs` line 314](https://github.com/chimera-defi/simple-sha256-miner/blob/d45add02158c805a5e22be3453ab26b88ff81487/v2/src/lib.rs#L314); it was line 141 in the tree that was tested): `hash_short_heads` (patched) or `hash_many_prefixed` plus
 `from_be_bytes` (stock, the `b18e923` callsite). Pinned to cores 0-5, 6 threads, 4 s warmup per
 arm, then 3 pairs of 10 s, order stock/patched, patched/stock, stock/patched. MH/s:
 
@@ -179,8 +183,8 @@ status 3; rerunning against the same state exits the same way at once.
 Prefix is 1-10 base64 or 1-16 hex characters, matched at the start of the
 encoded digest. Output is the 32-byte digest only.
 
-Follow-ups: [docs/WORKLOG.md](../docs/WORKLOG.md).
-
-### Case-insensitive Base64 mode
+## Case-insensitive Base64 mode
 
 Use `--prefix gensys --ignore-case` to match the original challenge: ASCII alphabetic Base64 symbols match either case, while digits, `+`, and `/` match exactly. The default remains case-sensitive. The fast first-word filter and full proof verifier share these semantics; `--ignore-case` is rejected for hex. Existing proofs without the `ignore_case` boolean retain exact-case meaning. The search-state key differs between exact and ignore-case mode; use a fresh state directory when switching. The v0/v1 examples remain exact-case historical references.
+
+Follow-ups: [docs/WORKLOG.md](../docs/WORKLOG.md).

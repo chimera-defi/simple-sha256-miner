@@ -11,7 +11,7 @@ Provenance
   repo gives no build flags, so -O2 is our choice and the OpenSSL headers were not installed: the file
   declares SHA256 itself, so only the library was linked). sha256 8ec995dec05a345644a4815bff8bcd797613d178edece57f424b0507a6833d88.
 - v2: `cargo build --release` (rustc 1.99.0; release profile opt-level=3, lto=true, codegen-units=1,
-  panic=abort; default features; the vendored library fork carrying the patch, tape-sha256 rev 391432a).
+  panic=abort; default features; the library fork carrying the patch, a git dependency on tape-sha256 rev 391432a).
   sha256 e1713315c4ba541da01a3735030437e096bbafb1ab16d86da4c953261cc86691.
 - Protocol: both under `taskset -c 0-5`. v2: `--threads 6 --backend lib --prefix zzzzzzzzzz` (unreachable),
   `--max-secs 10`, fresh state per run. v1 has no flags and no time limit: it hashes `gensys:<n>` with 6 worker
