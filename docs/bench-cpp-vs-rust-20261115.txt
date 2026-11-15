@@ -1,0 +1,73 @@
+# Pilot: C++ miner (v1) against Rust miner (v2)
+
+This file archives a third short pilot. The first (`bench-pilot-20261114.txt`) compared the library
+with our own AVX2 kernel. The second (`bench-stock-vs-patched-20261114.txt`) compared the stock library
+call with our patched call. This one compares the first miner, v1 in C++, with the current v2 in Rust.
+
+Provenance
+- Date/host: 2026-11-15 02:13:17 to 02:15:05 +01:00, shared 12-thread i7-8700, powersave governor.
+- Source: repo HEAD 61d8588bc25cc3347467e51fedaa17cf4de14fe5, built from a fresh clone, nothing edited.
+- v1: `g++ -O2 -std=c++17 -pthread v1/miner.cpp ... libcrypto.so.3` (g++ 13, system OpenSSL 3 library; the
+  repo gives no build flags, so -O2 is our choice and the OpenSSL headers were not installed: the file
+  declares SHA256 itself, so only the library was linked). sha256 8ec995dec05a345644a4815bff8bcd797613d178edece57f424b0507a6833d88.
+- v2: `cargo build --release` (rustc 1.99.0; release profile opt-level=3, lto=true, codegen-units=1,
+  panic=abort; default features; the vendored library fork carrying the patch, tape-sha256 rev 391432a).
+  sha256 e1713315c4ba541da01a3735030437e096bbafb1ab16d86da4c953261cc86691.
+- Protocol: both under `taskset -c 0-5`. v2: `--threads 6 --backend lib --prefix zzzzzzzzzz` (unreachable),
+  `--max-secs 10`, fresh state per run. v1 has no flags and no time limit: it hashes `gensys:<n>` with 6 worker
+  threads (it picks half the hardware threads), searching the 36-bit prefix `gensys`. We let it run 11 s and
+  read its first PROGRESS line (at 10 s), the average since start, then killed that process by its PID. It did
+  not find a hit. Both programs hash the same kind of message with the same digest size; v1 uses a 65,536
+  nonce chunk, v2 262,144.
+- One warmup run per program, same length as a timed run, then 4 pairs, alternating order:
+  pair1 cpp,rust; pair2 rust,cpp; pair3 cpp,rust; pair4 rust,cpp.
+- Original files: raw log sha256 62598b60db7b68e87a03ee8dea1d9e059152ea8f8cb0db6e0495eaf9031d2321; script sha256 490e2bb4dd0fc44cda7f801d5cd4841cc4061a80fa6ceae1b4cd5544486e7991. Both are reproduced verbatim below.
+
+Result: Rust/C++ paired ratios 41.68, 41.52, 43.48, 41.31 (median 41.6); arm medians Rust 109.1 MH/s,
+C++ 2.62 MH/s (ratio of medians 41.6). Rust faster in 4 of 4 pairs.
+
+Caveats
+- n=4 pairs of about 10 s; shared host whose 1-min load rose from 3.4 to 5.7 during the run (includes the
+  miner's own 6 threads).
+- Clock and temperature are single-instant samples taken just before each run (clock reads 1.9-4.4 GHz);
+  frequency not locked.
+- v1's figure is its own average since start, which includes thread start-up; v2's is the miner's own
+  rate line. The two are not read the same way.
+- The C++ flags are ours. A different optimisation setting or OpenSSL build could move the C++ figure.
+- The C++ result (2.52-2.63 MH/s) agrees with the README's earlier 2.66 MH/s, which was reported from a
+  run log and not re-run. This file is the first re-measurement.
+- The v2 figure here is with the patch, so the 41.6 is the whole change, C++ to Rust plus our patch. The
+  patch's own share (1.52 times, in `bench-stock-vs-patched-20261114.txt`) comes from a different run.
+- Same CPU only; AVX-512 or SHA-NI machines take the stock path anyway.
+- Pilot, not a controlled benchmark. No message or tool output replaces the raw log below.
+
+## Raw log (verbatim)
+start 2026-11-15T02:13:17+01:00  02:13:17 up 23 days,  2:42,  4 users,  load average: 1.27, 0.98, 1.43
+warmup cpp: 2.61 (workers=6, v1 PROGRESS at 10 s)
+warmup rust: 114.90
+pair1 pos1 cpp MH/s=2.63 (workers=6, v1 PROGRESS at 10 s) | before: load1=3.38 running=3 MHz0-5=3717 pkgC=66 | after: load1=3.86 running=2 MHz0-5=4376 pkgC=66
+pair1 pos2 rust MH/s=109.61 | before: load1=3.86 running=1 MHz0-5=4379 pkgC=67 | after: load1=4.34 running=1 MHz0-5=2131 pkgC=58
+pair2 pos1 rust MH/s=108.37 | before: load1=4.34 running=1 MHz0-5=1879 pkgC=58 | after: load1=4.68 running=1 MHz0-5=3131 pkgC=63
+pair2 pos2 cpp MH/s=2.61 (workers=6, v1 PROGRESS at 10 s) | before: load1=4.68 running=1 MHz0-5=2984 pkgC=63 | after: load1=4.88 running=1 MHz0-5=4324 pkgC=67
+pair3 pos1 cpp MH/s=2.52 (workers=6, v1 PROGRESS at 10 s) | before: load1=4.88 running=1 MHz0-5=4344 pkgC=65 | after: load1=5.05 running=2 MHz0-5=4365 pkgC=71
+pair3 pos2 rust MH/s=109.58 | before: load1=5.05 running=3 MHz0-5=4328 pkgC=67 | after: load1=5.33 running=1 MHz0-5=2051 pkgC=64
+pair4 pos1 rust MH/s=108.65 | before: load1=5.33 running=2 MHz0-5=2611 pkgC=63 | after: load1=5.66 running=2 MHz0-5=3004 pkgC=65
+pair4 pos2 cpp MH/s=2.63 (workers=6, v1 PROGRESS at 10 s) | before: load1=5.66 running=1 MHz0-5=2854 pkgC=64 | after: load1=5.72 running=1 MHz0-5=4127 pkgC=71
+end 2026-11-15T02:15:05+01:00
+
+## Script (verbatim)
+#!/bin/bash
+# v1 (C++, OpenSSL) vs v2 (Rust, lib backend), alternating pairs, pinned to cores 0-5.
+D=$(dirname "$0"); C=$D/v1miner; R=$D/src/v2/target/release/vanity-miner
+fr(){ awk '/cpu MHz/{a[n++]=$4} END{for(i=0;i<6;i++)s+=a[i]; printf "%.0f", s/6}' /proc/cpuinfo; }
+tel(){ echo "load1=$(cut -d' ' -f1 /proc/loadavg) running=$(awk '/procs_running/{print $2}' /proc/stat) MHz0-5=$(fr) pkgC=$(( $(cat /sys/class/thermal/thermal_zone3/temp)/1000 ))"; }
+run(){ d=$(mktemp -d /tmp/cb.XXXX)
+  if [ $1 = cpp ]; then taskset -c 0-5 $C >$d/out 2>&1 & p=$!; sleep 11; kill $p; wait $p 2>/dev/null
+    r=$(grep -o 'avg_MH_s=[0-9.]*' $d/out | head -1 | cut -d= -f2); w=$(grep -o 'workers=[0-9]*' $d/out | head -1)
+    echo "$r ($w, v1 PROGRESS at 10 s)"
+  else r=$(taskset -c 0-5 $R --prefix zzzzzzzzzz --threads 6 --backend lib --max-secs 10 --state $d/s 2>&1 >/dev/null | grep -o 'rate_MH/s=[0-9.]*' | cut -d= -f2); echo "$r"; fi; rm -rf $d; }
+echo "start $(date -Is) $(uptime)"
+for a in cpp rust; do echo "warmup $a: $(run $a)"; done
+orders=("cpp rust" "rust cpp" "cpp rust" "rust cpp"); p=0
+for o in "${orders[@]}"; do p=$((p+1)); i=0; for a in $o; do i=$((i+1)); b="$(tel)"; r=$(run $a); af="$(tel)"; echo "pair$p pos$i $a MH/s=$r | before: $b | after: $af"; done; done
+echo "end $(date -Is)"
