@@ -361,6 +361,9 @@ body { margin: 0; min-height: 100vh; }
 .site-footer .fl-mono { font-size: .75rem; letter-spacing: .05em; color: var(--ink-2); }
 .site-footer nav { display: flex; flex-wrap: wrap; gap: var(--space-5); }
 .site-footer a { display: inline-flex; align-items: center; min-width: 44px; min-height: 44px; font-size: .75rem; }
+/* Links outside .art (breadcrumb, footer, skip link) match research.html: ink, 1px underline, 2px on hover. */
+.art-crumb a, .site-footer a, .skip { color: var(--ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; }
+.art-crumb a:hover, .site-footer a:hover { text-decoration-thickness: 2px; }
 @media (min-width: 640px) {
   .site-header-inner, .site-footer { padding-inline: 2rem; }
   .site-nav { gap: 1.75rem; }
@@ -536,8 +539,8 @@ html:not(.js) .needs-js { display: none; }
 </svg>
 <figcaption>Ignore-case is a Base64 option only. Hex prefixes are lowercase and cost 16 times per character.</figcaption>
 </figure>
-<p>For a prefix with <var>L</var> letters and <var>D</var> other characters, expected guesses are 32<sup><var>L</var></sup> × 64<sup><var>D</var></sup>, with ignore-case on. With it off, they are 64<sup><var>L</var>+<var>D</var></sup>. Time is guesses divided by hashes per second. Extra threads raise that speed. They do not lower the guesses.</p>
-<p>The miner takes 1 to 10 Base64 characters, or 1 to 16 hex (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/lib.rs#L91-L102">lib.rs</a>). The rule is also in the <a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/README.md#L63">README</a>.</p>
+<p>For a prefix with <var>L</var> letters and <var>D</var> other characters, expected guesses are 32<sup><var>L</var></sup> × 64<sup><var>D</var></sup>, with ignore-case on. With it off, they are 64<sup><var>L</var>+<var>D</var></sup>. Time is guesses divided by hashes per second. Extra threads raise that speed, but not in step: on one shared machine, 6 threads averaged 97 million hashes a second and 11 threads averaged 109, over 3 runs each (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/README.md#L117-L121">earlier runs</a>). They do not lower the guesses.</p>
+<p>The miner takes 1 to 10 Base64 characters, or 1 to 16 hex (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/lib.rs#L91-L102">lib.rs</a>, <a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/README.md#L177-L180">limits</a>). The cost rule above is also in the <a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/README.md#L63">README</a>.</p>
 </section>
 
 <section id="try">
@@ -559,14 +562,14 @@ html:not(.js) .needs-js { display: none; }
 </div>
 <p class="hint small" id="mnote">Ignore-case: all 6 characters are letters.</p>
 </div>
-<p class="small"><strong>Where 104.6 comes from.</strong> It is the median of three pinned 6-thread runs of the default backend on one shared i7-8700 (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/README.md#L127-L139">v2/README.md</a>). Unpinned runs gave a median of 87.6 (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/README.md#L99-L105">same file</a>). Your CPU will differ.</p>
+<p class="small"><strong>Where 104.6 comes from.</strong> It is the median of a 3-run pilot, not a controlled benchmark: three pinned 6-thread runs of the default backend on one shared i7-8700 (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/README.md#L127-L145">v2/README.md</a>). Unpinned runs gave a median of 87.6 (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/README.md#L99-L105">same file</a>). At 87.6, six letters with ignore-case take about 12 seconds on average, not 10. The pilot does not show how much of the gap comes from pinning. The fast path only covers a message that fits one SHA-256 block (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/README.md#L71-L77">why</a>). Your CPU will differ.</p>
 <p class="small"><strong>The model.</strong> It treats each hash as an independent random draw, which is a good model for SHA-256 and not a proof. It also assumes a steady speed. The miner counts nonces in order, but the hashes look random, so the order does not help. One hit in <var>N</var> tries is expected, and the chance of a hit within <var>N</var> tries is 1 − (1 − 1/<var>N</var>)<sup><var>N</var></sup>, about 63.2% for large <var>N</var>. A real run can finish far sooner or much later than the average.</p>
-<p class="small"><strong>Nonce limit.</strong> Nonces run from 0 to just under 2<sup>64</sup> (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/lib.rs#L248-L250">lib.rs</a>). A 10-character exact prefix needs about 2<sup>60</sup> guesses, 16 times fewer. Running out of nonces first is possible, but the model puts it near 1 in 9 million.</p>
+<p class="small"><strong>Nonce limit.</strong> Nonces run from 0 to just under 2<sup>64</sup> (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/lib.rs#L248-L250">lib.rs</a>). A 10-character exact prefix needs about 2<sup>60</sup> guesses, 16 times fewer. Running out of nonces first is possible, but the model puts it near 1 in 9 million. A 16-character hex prefix is the hard case: it needs 2<sup>64</sup> guesses, the whole nonce space, so the model has the miner run out first about 37% of the time. Starting above zero with <code>--start-nonce</code> leaves fewer nonces.</p>
 </section>
 
 <section id="memory">
 <h2>4. Why memory stays small</h2>
-<p><strong>The miner keeps no list of guesses, only the ranges it has finished.</strong> Each thread claims the lowest unfinished chunk of 262,144 nonces and hashes it 128 at a time (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/main.rs#L34-L35">chunk size</a>, <a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/main.rs#L153-L160">claiming</a>). Misses are dropped on the spot.</p>
+<p><strong>The miner keeps no list of guesses, only the ranges it has finished.</strong> Each thread claims the lowest unfinished chunk, 262,144 nonces by default, and hashes it 128 at a time (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/main.rs#L34-L35">chunk size</a>, <a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/lib.rs#L247">batch size</a>, <a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/main.rs#L153-L160">claiming</a>). Misses are dropped on the spot.</p>
 <figure class="fig">
 <svg viewBox="0 0 320 210" role="img" aria-labelledby="f3t f3d">
 <title id="f3t">Threads, chunks and the record of finished ranges</title>
@@ -587,8 +590,8 @@ html:not(.js) .needs-js { display: none; }
 </svg>
 <figcaption>Only the bottom box is kept, and a chunk that was cut short or holds a hit is not recorded.</figcaption>
 </figure>
-<p>The journal is appended every half second, and a checkpoint is written every 30 seconds (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/main.rs#L187-L190">main.rs</a>). Finished ranges merge when they touch (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/state.rs#L23-L41">state.rs</a>). A run with no gaps is one range, however many guesses it has made. Memory does not grow with the number of guesses.</p>
-<p>If you stop the miner and rerun it with the same flags, it resumes from the journal and repeats any unfinished chunk (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/README.md#L3-L5">v2/README.md</a>, <a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/README.md#L40-L41">resume</a>).</p>
+<p>The journal is appended every half second, and a checkpoint is written every 30 seconds (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/main.rs#L182-L190">main.rs</a>). Finished ranges merge when they touch (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/state.rs#L23-L41">state.rs</a>). A run with no gaps is one range, however many guesses it has made. Memory does not grow with the number of guesses.</p>
+<p>If you stop the miner and rerun it with the same flags, it resumes from the checkpoint and the journal and repeats any unfinished chunk (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/README.md#L3-L5">v2/README.md</a>, <a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/README.md#L40-L41">resume</a>).</p>
 </section>
 
 <section id="more">
