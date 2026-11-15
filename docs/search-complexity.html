@@ -3,14 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>How hard is finding a SHA-256 prefix?</title>
-<meta name="description" content="Each extra Base64 character makes the miner's search 64 times longer, or 32 times for a letter when case is ignored. A small calculator turns that into time.">
-<meta property="og:title" content="How hard is finding a SHA-256 prefix?">
-<meta property="og:description" content="Why each extra character costs 64 times the work, with a calculator.">
+<title>SHA-256 prefix search cost: 64 times more per character</title>
+<meta name="description" content="How many guesses, and how long, it takes to find a SHA-256 hash that starts with a prefix you choose. Each extra Base64 character costs 64 times more, or 32 times for a letter when case is ignored. Pictures and a calculator.">
+<meta property="og:title" content="SHA-256 prefix search cost: 64 times more per character">
+<meta property="og:description" content="How many guesses and how much time a SHA-256 prefix needs, with a calculator.">
 <meta property="og:type" content="article">
 <meta name="twitter:card" content="summary">
-<link rel="canonical" href="https://chimera-defi.github.io/simple-sha256-miner/search-complexity.html">
+<link rel="canonical" href="https://chimericlabs.xyz/research/sha256-search-cost/">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%23b3263d%27/%3E%3Cpath d=%27M13 7 11 25M21 7 19 25M7.5 12.5h17M7 19.5h17%27 stroke=%27%23fff%27 stroke-width=%273%27 stroke-linecap=%27round%27 fill=%27none%27/%3E%3C/svg%3E">
 <style>
 /*
@@ -327,6 +326,16 @@ body {
 }
 </style>
 <style>
+/* chimericlabs-llc on Field Lab v3: tokens.css -> field-lab.css -> this file.
+ * The Tailwind CDN sheet lands after these links, so a utility beats an fl-* class
+ * on the same property; palette names in each page's tailwind.config map to tokens. */
+html { overflow-x: clip; scroll-padding-top: 4.5rem; } /* the hero graph paper bleeds to the viewport edges */
+/* Headings: Archivo squeezed per level (the old serif slot). */
+h1.font-serif, h2.font-serif, h3.font-serif { font-family: var(--f-display); font-weight: 800; word-spacing: .15em; }
+h1.font-serif { font-stretch: 68%; line-height: .92; letter-spacing: -.03em; }
+h2.font-serif { font-stretch: 82%; letter-spacing: -.03em; }
+h3.font-serif { font-stretch: 90%; font-weight: 700; letter-spacing: -.02em; }
+
 /* Brand: Field Lab wordmark, an orange square then the name in display ink. */
 .site-brand { font-family: var(--f-display); font-stretch: 70%; font-weight: 800; font-size: 18px; letter-spacing: -.01em; color: var(--ink); gap: 8px; }
 .site-brand::before { content: ""; width: 12px; height: 12px; background: var(--accent); border: 1.5px solid var(--ink); flex: none; }
@@ -336,13 +345,89 @@ body {
   .site-header-inner { padding-inline: var(--space-4); }
   .site-nav { column-gap: var(--space-2); }
   .site-nav-link { font-size: .8125rem; }
+  .site-contact { padding-inline: var(--space-3); }
 }
 @media (max-width: 364px) {
   .site-brand { font-size: 0; }
   .site-brand::after { content: "CL"; font-size: .8125rem; }
   .site-nav { column-gap: .375rem; }
+  .site-contact { padding-inline: .625rem; }
 }
 
+/* The header Contact button is ink, so the hero CTA is the one orange action in view. */
+.site-contact { background: var(--ink); color: var(--bg); }
+.site-contact:hover { background: var(--ink-2); border-color: var(--ink-2); }
+
+/* Hero: .fl-graph-paper--fade supplies the fading grid; let it bleed to the viewport edges. */
+.site-hero::before { inset: 0 calc(50% - 50vw); }
+.hero-rig { display: block; width: 100%; height: auto; margin: 0 0 24px; }
+@media (min-width: 1024px) {
+  /* Desktop: a two-column hero without touching the DOM. The section becomes the grid and
+     the inner grid (lg:contents) dissolves, so its two children place beside the rig:
+       [ text   | rig       ]
+       [ text   | build map ]
+       [ proof strip ...... ]                                              */
+  .site-hero { display: grid; grid-template-columns: minmax(0, 1fr) 480px; column-gap: 64px; align-items: center; }
+  .site-hero-grid > :first-child { grid-column: 1; grid-row: 1 / span 2; }
+  .hero-rig { grid-column: 2; grid-row: 1; margin: 0; }
+  .site-hero-grid > :last-child { grid-column: 2; grid-row: 2; }
+  .site-hero > :last-child { grid-column: 1 / -1; }
+}
+
+/* Status pills keep their source casing. */
+.fl-pill { text-transform: none; }
+
+/* Telemetry band: always-dark full-bleed strip behind the stats, with a canvas particle field. */
+.site-band { position: relative; isolation: isolate; }
+.site-band::before {
+  content: ""; position: absolute; inset: 0 calc(50% - 50vw); z-index: -2;
+  background: var(--band);
+}
+.band-ro { font: 400 clamp(24px, 3vw, 38px)/1.1 var(--f-mono); letter-spacing: -.02em; color: var(--band-ink); }
+.band-cap { margin-top: 4px; text-transform: none; color: var(--band-ink-2); }
+.site-band canvas {
+  position: absolute; z-index: -1; top: 0; bottom: 0; left: 50%; width: 100vw; height: 100%;
+  margin-left: -50vw; pointer-events: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 8%, #000 62%);
+          mask-image: linear-gradient(90deg, transparent 8%, #000 62%);
+}
+
+/* Hero text rises once the intro leaves (--t0 is 1s while it plays). */
+html.js { --t0: 0s; }
+html.js .rise { animation: rise .8s var(--ease) calc(var(--t0) + var(--rd, 0s)) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(18px); } }
+
+/* Intro: always-dark blueprint overlay built by motion.js. Its text is generated content, so none enters the DOM.
+   html.intro::before is the same cover from first paint until the overlay exists. */
+@property --n { syntax: "<integer>"; inherits: false; initial-value: 0; }
+@counter-style fl-pad3 { system: numeric; symbols: "0" "1" "2" "3" "4" "5" "6" "7" "8" "9"; pad: 3 "0"; }
+html.intro::before, .fl-intro { content: ""; position: fixed; inset: 0; background: var(--band); animation: fl-out .4s var(--ease) 1s forwards; }
+html.intro::before { z-index: 149; }
+.fl-intro { z-index: 150; color: var(--band-ink); }
+.fl-intro i { position: absolute; inset: 0; opacity: .32; pointer-events: none; }
+.fl-intro .gv { background: repeating-linear-gradient(90deg, var(--band-ink) 0 1px, transparent 1px 48px); clip-path: inset(0 0 100% 0); animation: fl-wipe .6s var(--ease) .05s forwards; }
+.fl-intro .gh { background: repeating-linear-gradient(0deg, var(--band-ink) 0 1px, transparent 1px 48px); clip-path: inset(0 100% 0 0); animation: fl-wipe .6s var(--ease) .15s forwards; }
+.fl-intro .hint { opacity: 1; inset: var(--gutter) var(--gutter) auto auto; font: 500 12px/1 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; }
+.fl-intro .hint::before { content: "Press any key"; opacity: .7; }
+.fl-intro::before {
+  content: "ChimericLabs"; position: absolute; left: var(--gutter); bottom: var(--gutter);
+  font: 800 clamp(34px, 8vw, 96px)/.85 var(--f-display); font-stretch: 70%; text-transform: uppercase; letter-spacing: -.02em;
+}
+.fl-intro::after {
+  content: counter(n, fl-pad3); counter-reset: n var(--n); position: absolute; right: var(--gutter); bottom: var(--gutter);
+  font: 500 clamp(24px, 4vw, 44px)/1 var(--f-mono); padding-bottom: 6px; border-bottom: 3px solid var(--accent);
+  animation: fl-count 1s var(--ease) forwards;
+}
+@keyframes fl-wipe { to { clip-path: inset(0); } }
+@keyframes fl-count { to { --n: 100; } }
+@keyframes fl-out { to { clip-path: inset(0 0 100% 0); visibility: hidden; } }
+
+@media (prefers-reduced-motion: reduce) {
+  html.js .rise { animation: none; }
+  html.intro::before, .fl-intro { display: none; }
+}
+</style>
+<style>
 /* Field Lab article shell for research pages: header, footer, reading column, prose, tables, notes.
  * Load after tokens.css and field-lab.css. Plain CSS, tokens only, no Tailwind, so a page can be inlined and stay self-contained. */
 html { background: var(--bg); scroll-padding-top: 4.5rem; }
@@ -431,25 +516,35 @@ body { margin: 0; min-height: 100vh; }
 .skip { position: absolute; left: -999px; top: var(--space-2); }
 .skip:focus { left: var(--space-2); z-index: 60; padding: var(--space-2) var(--space-3); background: var(--surface); }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+
+/* Code: static highlight spans written into the page (no script). Weight and style carry meaning as well as colour. */
+.art pre.code { margin-top: var(--space-3); }
+.tok-kw { color: var(--accent-ink); font-weight: 700; }
+.tok-fn { color: var(--ink); font-weight: 600; }
+.tok-str { color: var(--chart-3); }
+.tok-num { color: var(--accent-ink); }
+.tok-com { color: var(--ink-2); font-style: italic; }
+.tok-type { color: var(--chart-3); font-weight: 700; }
+
+/* Drawn pictures (inline SVG): used by the search-cost article and the same pictures inside the SHA-256 article. */
+.pic { margin: var(--space-4) 0 0; padding: var(--space-4); background: var(--surface); border: 1px solid var(--line); }
+.pic svg { display: block; width: 100%; max-width: 40rem; height: auto; margin: 0 auto; }
+.pic figcaption { margin-top: var(--space-3); font-size: .875rem; line-height: 1.5; color: var(--ink-2); }
+.pic svg .t { font: 500 12px var(--f-body); fill: var(--ink); }
+.pic svg .t2 { font: 500 12px var(--f-body); fill: var(--ink-2); }
+.pic svg .tb { font: 700 13px var(--f-body); fill: var(--ink); }
+.pic svg .box { fill: var(--bg); stroke: var(--ink); stroke-width: 1.5; }
+.pic svg .miss { fill: var(--surface-2); stroke: var(--line); stroke-width: 1.5; }
+.pic svg .hit { fill: var(--accent); stroke: var(--ink); stroke-width: 1.5; }
+.pic svg .hit-t { font: 700 12px var(--f-body); fill: var(--on-accent); }
+.pic svg .plate { fill: var(--ink); }
+.pic svg .plate-t { font: 600 12px var(--f-body); fill: var(--bg); }
+.pic svg .dash { stroke-dasharray: 5 3; }
+.pic svg .ln { stroke: var(--ink); stroke-width: 1.5; fill: none; }
+.pic svg .arr { fill: var(--ink); }
 </style>
 <style>
-/* This page only: pictures and calculator. Colours come from the Field Lab tokens. */
-.lede-answer { font-size: 1.125rem; }
-.fig { margin: var(--space-4) 0 0; padding: var(--space-4); background: var(--surface); border: 1px solid var(--line); }
-.fig svg { display: block; width: 100%; max-width: 40rem; height: auto; margin: 0 auto; }
-.fig figcaption { margin-top: var(--space-3); font-size: .875rem; line-height: 1.5; color: var(--ink-2); }
-svg .t { font: 500 12px var(--f-body); fill: var(--ink); }
-svg .t2 { font: 500 12px var(--f-body); fill: var(--ink-2); }
-svg .tb { font: 700 13px var(--f-body); fill: var(--ink); }
-svg .box { fill: var(--bg); stroke: var(--ink); stroke-width: 1.5; }
-svg .miss { fill: var(--surface-2); stroke: var(--line); stroke-width: 1.5; }
-svg .hit { fill: var(--accent); stroke: var(--ink); stroke-width: 1.5; }
-svg .hit-t { font: 700 12px var(--f-body); fill: var(--on-accent); }
-svg .plate { fill: var(--ink); }
-svg .plate-t { font: 600 12px var(--f-body); fill: var(--bg); }
-svg .dash { stroke-dasharray: 5 3; }
-svg .ln { stroke: var(--ink); stroke-width: 1.5; fill: none; }
-svg .arr { fill: var(--ink); }
+/* This page only: the calculator. The drawn pictures live in assets/article.css. */
 .calc { margin-top: var(--space-4); padding: var(--space-4); background: var(--surface); border: 1.5px solid var(--ink); }
 .calc *, .tile { box-sizing: border-box; }
 .calc .row > div { min-width: 0; }
@@ -462,8 +557,8 @@ svg .arr { fill: var(--ink); }
 .tile .k { display: block; font: var(--t-label); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
 .tile output { display: block; margin-top: var(--space-1); font: 600 1.375rem/1.25 var(--f-mono); overflow-wrap: anywhere; }
 .art .calc .hint { margin-top: var(--space-3); }
-html:not(.js) .needs-js { display: none; }
-.js .nojs { display: none; }
+.calc .lead { margin: 0 0 var(--space-3); }
+.js .nojs, html:not(.js) .needs-js { display: none; }
 .credit { margin-top: var(--space-3); }
 </style>
 <script>document.documentElement.classList.add("js")</script>
@@ -474,21 +569,22 @@ html:not(.js) .needs-js { display: none; }
 <div class="site-header-inner">
 <a href="https://chimericlabs.xyz/index.html" class="site-brand inline-flex">ChimericLabs</a>
 <nav class="site-nav" aria-label="Primary">
-<a href="https://chimericlabs.xyz/portfolio.html">Portfolio</a>
-<a href="https://chimericlabs.xyz/research.html" aria-current="page">Research</a>
-<a href="https://chimericlabs.xyz/index.html#services">Services</a>
-<a href="https://github.com/chimera-defi" target="_blank" rel="noreferrer" class="gh">GitHub</a>
+<a href="https://chimericlabs.xyz/portfolio.html" class="site-nav-link">Portfolio</a>
+<a href="https://chimericlabs.xyz/research.html" class="site-nav-link" aria-current="page">Research</a>
+<a href="https://chimericlabs.xyz/index.html#services" class="site-nav-link">Services</a>
+<a href="https://github.com/chimera-defi" target="_blank" rel="noreferrer" class="site-nav-link gh">GitHub</a>
+<a href="mailto:chimera_defi@protonmail.com" class="site-nav-link site-contact fl-btn">Contact</a>
 </nav>
 </div>
 </header>
 
 <main class="art-wrap">
-<nav class="art-crumb" aria-label="Breadcrumb"><a href="how-it-works-v3.html">← Back to the visual miner guide</a><a href="index.html">Miner docs</a></nav>
+<nav class="art-crumb" aria-label="Breadcrumb"><a href="index.html">← Back to the miner docs</a></nav>
 
 <article class="art" id="article">
 <header class="art-head">
-<p class="fl-label">Explainer · <time datetime="2026-11-15">15 Nov 2026</time></p>
-<h1>How hard is finding a SHA-256 prefix?</h1>
+<p class="fl-label">Explainer · <time datetime="2026-11-15">15 Nov 2026</time> · 6 min read</p>
+<h1>What it costs to find a SHA-256 prefix</h1>
 <p class="art-lede">Each extra Base64 character makes the search 64 times longer. Ignoring case makes a letter cost 32 times instead. More threads make guessing faster, not luckier.</p>
 </header>
 
@@ -497,7 +593,7 @@ html:not(.js) .needs-js { display: none; }
 <section id="loop">
 <h2>1. Guess, hash, compare, repeat</h2>
 <p><strong>The miner tries numbers in order until a hash starts with your prefix.</strong> It joins your phrase and a counter, such as <code>gensys:0</code>. The counter is called the nonce. It hashes the text with SHA-256 and writes the digest in Base64 (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/lib.rs#L113-L115">message</a>, <a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/lib.rs#L127-L133">encoding</a>). Then it compares the first characters with your prefix. A miss is dropped. A hit is hashed again with a reference library before it is reported (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/main.rs#L213-L215">main.rs</a>).</p>
-<figure class="fig">
+<figure class="pic">
 <svg viewBox="0 0 320 150" role="img" aria-labelledby="f1t f1d">
 <title id="f1t">Four guesses, one match</title>
 <desc id="f1d">Four columns. Each shows a guess, gensys:0 to gensys:3, with an arrow down to its result. The first three results read no match. The fourth reads match.</desc>
@@ -527,7 +623,7 @@ html:not(.js) .needs-js { display: none; }
 <section id="cost">
 <h2>2. Why one more character costs 64 times</h2>
 <p><strong>Each Base64 character is 6 bits, so it has 64 possible values.</strong> A hash lands on one given value 1 time in 64. One more exact character therefore means 64 times as many guesses on average.</p>
-<figure class="fig">
+<figure class="pic">
 <svg viewBox="0 0 320 190" role="img" aria-labelledby="f2t f2d">
 <title id="f2t">Work added by one more prefix character</title>
 <desc id="f2d">One more character multiplies the expected guesses by 64 for an exact character, by 32 for a letter when case is ignored, and by 64 for a digit, plus or slash even when case is ignored.</desc>
@@ -547,8 +643,8 @@ html:not(.js) .needs-js { display: none; }
 <h2>3. Try it</h2>
 <p><strong>Six letters with ignore-case take about 10 seconds. Ten exact characters take centuries.</strong> Change the numbers to see the rest.</p>
 <div class="calc">
-<p class="needs-js small flush" style="margin:0 0 var(--space-3)">Pick a length, a mode and a speed. The answers update as you type.</p>
-<p class="nojs small flush" style="margin:0 0 var(--space-3)">The controls need JavaScript. The answers below are the default: 6 letters, ignore-case, 104.6 million hashes per second.</p>
+<p class="needs-js small lead">Pick a length, a mode and a speed. The answers update as you type.</p>
+<p class="nojs small lead">The controls need JavaScript. The answers below are the default: 6 letters, ignore-case, 104.6 million hashes per second.</p>
 <div class="row needs-js">
 <div><label for="k">Prefix length: <span id="kv">6</span> characters</label><input id="k" type="range" min="1" max="10" step="1" value="6"></div>
 <div><label for="mode">Matching</label><select id="mode"><option value="ic" selected>Ignore case (Base64)</option><option value="ex">Exact case</option></select></div>
@@ -570,7 +666,7 @@ html:not(.js) .needs-js { display: none; }
 <section id="memory">
 <h2>4. Why memory stays small</h2>
 <p><strong>The miner keeps no list of guesses, only the ranges it has finished.</strong> Each thread claims the lowest unfinished chunk, 262,144 nonces by default, and hashes it 128 at a time (<a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/main.rs#L34-L35">chunk size</a>, <a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/lib.rs#L247">batch size</a>, <a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/src/main.rs#L153-L160">claiming</a>). Misses are dropped on the spot.</p>
-<figure class="fig">
+<figure class="pic">
 <svg viewBox="0 0 320 210" role="img" aria-labelledby="f3t f3d">
 <title id="f3t">Threads, chunks and the record of finished ranges</title>
 <desc id="f3d">Three thread boxes, labelled thread 1, thread 2 and thread N, each take one chunk of 262,144 nonces. Misses are discarded. Only finished chunks flow down into a journal of finished ranges, with a checkpoint every 30 seconds.</desc>
@@ -598,8 +694,7 @@ html:not(.js) .needs-js { display: none; }
 <h2>More</h2>
 <ul>
 <li><a href="https://github.com/chimera-defi/simple-sha256-miner">The repository</a> and its <a href="https://github.com/chimera-defi/simple-sha256-miner/blob/4118081dec42179ccb260ad219df666392c5300a/v2/README.md">v2 notes</a>.</li>
-<li><a href="how-it-works-v3.html">Step-by-step explainer</a>: how the miner got faster.</li>
-<li><a href="https://chimericlabs.xyz/research/sha256/">The article</a> on the SHA-256 search.</li>
+<li><a href="how-it-works-v3.html">We made our SHA-256 miner about 42 times faster</a>: the step-by-step explainer, with the measured tests.</li>
 </ul>
 <p class="small credit">The analysis, diagrams and calculator were drafted by ChatGPT (OpenAI GPT-6), then reviewed and edited by Claude. This page describes expected work under a random-hash model. It is not a proof about every way to search SHA-256.</p>
 </section>
@@ -614,41 +709,55 @@ html:not(.js) .needs-js { display: none; }
 <nav aria-label="Footer">
 <a href="https://chimericlabs.xyz/index.html">Home</a>
 <a href="https://github.com/chimera-defi" target="_blank" rel="noreferrer">GitHub</a>
-<a href="https://github.com/chimera-defi/simple-sha256-miner" target="_blank" rel="noreferrer">Source</a>
+<a href="https://github.com/chimera-defi/chimericlabs-llc" target="_blank" rel="noreferrer">Source</a>
 </nav>
 </div>
 </footer>
-<script>
-(function(){
-var $=function(i){return document.getElementById(i)};
-function fmt(s){
-  if(!isFinite(s))return "too long to show";
-  if(s<0.005)return "under 0.01 seconds";
-  if(s<60)return s.toFixed(2)+" seconds";
-  if(s<3600)return (s/60).toFixed(2)+" minutes";
-  if(s<86400)return (s/3600).toFixed(2)+" hours";
-  var y=s/31557600;
-  if(y<1)return (s/86400).toFixed(2)+" days";
-  if(y<1e6)return y.toFixed(y<100?2:0).replace(/\B(?=(\d{3})+(?!\d))/g,",")+" years";
-  return y.toExponential(2).replace("e+"," × 10^")+" years";
+<script type="module">
+const $ = id => document.getElementById(id)
+
+const group = n => n.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+// Plain words for a time in seconds.
+const fmt = s => {
+  if (!isFinite(s)) return "too long to show"
+  if (s < 0.005) return "under 0.01 seconds"
+  if (s < 60) return `${s.toFixed(2)} seconds`
+  if (s < 3600) return `${(s / 60).toFixed(2)} minutes`
+  if (s < 86400) return `${(s / 3600).toFixed(2)} hours`
+  const years = s / 31557600
+  if (years < 1) return `${(s / 86400).toFixed(2)} days`
+  if (years < 1e6) return `${group(years.toFixed(years < 100 ? 2 : 0))} years`
+  return `${years.toExponential(2).replace("e+", " × 10^")} years`
 }
-function update(){
-  var k=parseInt($("k").value,10),ic=$("mode").value==="ic",dEl=$("d");
-  var d=parseInt(dEl.value,10); if(!(d>=0))d=0; if(d>k)d=k;
-  dEl.max=k; dEl.disabled=!ic;
-  if(ic){dEl.value=d}else{d=0}
-  $("kv").textContent=k;
-  var L=k-d, n=ic?(32n**BigInt(L))*(64n**BigInt(d)):64n**BigInt(k);
-  var rate=parseFloat($("rate").value);
-  $("guesses").textContent=n.toLocaleString("en-US");
-  $("time").textContent=rate>0?fmt(Number(n)/(rate*1e6)):"Enter a speed above 0";
-  var N=Number(n), p=-Math.expm1(N*Math.log1p(-1/N));
-  $("chance").textContent=(p*100).toFixed(1)+"%";
-  $("mnote").textContent=ic?("Ignore-case: "+(L?L+(L===1?" letter costs":" letters cost")+" 32 times each":"")+(L&&d?", ":"")+(d?d+(d===1?" digit or symbol costs":" digits or symbols cost")+" 64 times each":"")+"."):"Exact case: every character costs 64 times.";
+
+const update = () => {
+  const k = parseInt($("k").value, 10)
+  const ignoreCase = $("mode").value === "ic"
+  const digitBox = $("d")
+  let d = parseInt(digitBox.value, 10)
+  if (!(d >= 0)) d = 0
+  if (d > k) d = k
+  digitBox.max = k
+  digitBox.disabled = !ignoreCase
+  if (ignoreCase) digitBox.value = d
+  else d = 0
+  $("kv").textContent = k
+  const letters = k - d
+  const guesses = ignoreCase ? 32n ** BigInt(letters) * 64n ** BigInt(d) : 64n ** BigInt(k)
+  const rate = parseFloat($("rate").value)
+  $("guesses").textContent = guesses.toLocaleString("en-US")
+  $("time").textContent = rate > 0 ? fmt(Number(guesses) / (rate * 1e6)) : "Enter a speed above 0"
+  const n = Number(guesses)
+  $("chance").textContent = `${(-Math.expm1(n * Math.log1p(-1 / n)) * 100).toFixed(1)}%`
+  const letterText = letters ? `${letters} ${letters === 1 ? "letter costs" : "letters cost"} 32 times each` : ""
+  const otherText = d ? `${d} ${d === 1 ? "digit or symbol costs" : "digits or symbols cost"} 64 times each` : ""
+  $("mnote").textContent = ignoreCase
+    ? `Ignore-case: ${[letterText, otherText].filter(Boolean).join(", ")}.`
+    : "Exact case: every character costs 64 times."
 }
-["k","mode","d","rate"].forEach(function(i){$(i).addEventListener("input",update)});
-update();
-})();
+
+for (const id of ["k", "mode", "d", "rate"]) $(id).addEventListener("input", update)
+update()
 </script>
 </body>
 </html>
